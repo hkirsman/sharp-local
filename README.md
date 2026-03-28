@@ -1,6 +1,6 @@
-# SHARP ocal web experiment
+# Sharp local (SHARP web experiment)
 
-Small local app: upload an image → run [Apple SHARP](https://github.com/apple/ml-sharp) (PyTorch) → view the 3D Gaussian splat in the browser with Three.js ([GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D)).
+Small local app: upload an image → run [Apple SHARP](https://github.com/apple/ml-sharp) (PyTorch) → view the 3D Gaussian splat in the browser with Three.js and [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D).
 
 Inference is **not** in the browser; only the UI and viewer are.
 
@@ -61,4 +61,12 @@ The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hu
 ## References
 
 - [ml-sharp](https://github.com/apple/ml-sharp) · [paper](https://arxiv.org/abs/2512.10685)
->>>>>>> 1f6b7f4 (GH-1: Add local SHARP web UI MVP)
+
+## Credits
+
+- **UI / idea:** The two-panel layout (upload + preview, generate, local run) and overall workflow were inspired by Rob de Winter’s walkthrough [“Apple SHARP + custom Three.js interface”](https://www.youtube.com/watch?v=8S57bfQ9w9A). This repository is independent community work—not affiliated with Apple, ml-sharp’s authors, or the video creator.
+- **3D Gaussian splat preview (browser):** [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D) by Mark Kellogg, consumed as [`@mkkellogg/gaussian-splats-3d@0.4.6`](https://unpkg.com/@mkkellogg/gaussian-splats-3d@0.4.6/) from the [unpkg](https://unpkg.com/) CDN (imported in `static/main.js`). npm listing: [`@mkkellogg/gaussian-splats-3d`](https://www.npmjs.com/package/@mkkellogg/gaussian-splats-3d). See the upstream [license](https://github.com/mkkellogg/GaussianSplats3D/blob/main/LICENSE).
+- **WebGL / math (browser):** [Three.js](https://threejs.org/) **r170** as an ES module, loaded via an import map from unpkg (`static/index.html`).
+- **Monocular splats (local inference):** [Apple ml-sharp](https://github.com/apple/ml-sharp) and its model weights; use is subject to their [LICENSE](https://github.com/apple/ml-sharp/blob/main/LICENSE) and [LICENSE_MODEL](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL).
+
+Third-party scripts are fetched from **unpkg** at runtime in development-style setups; for stricter deployments, vendor these files or use your own CDN and integrity checks.
