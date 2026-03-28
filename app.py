@@ -36,14 +36,14 @@ STATIC_DIR = EXPERIMENT_ROOT / "static"
 
 
 def _configure_logger(name: str) -> logging.Logger:
-    """Attach a handler only to this app’s logger (no root basicConfig on import)."""
+    """This app’s logger at INFO, no propagation to root; add StreamHandler if none."""
     log = logging.getLogger(name)
+    log.setLevel(logging.INFO)
+    log.propagate = False
     if not log.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
         log.addHandler(handler)
-        log.setLevel(logging.INFO)
-        log.propagate = False
     return log
 
 
