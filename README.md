@@ -4,6 +4,16 @@ Small local app: upload an image → run [Apple SHARP](https://github.com/apple/
 
 Inference is **not** in the browser; only the UI and viewer are.
 
+## Screenshots
+
+**Preview 1**
+
+![Sharp local UI preview](docs/readme/ui-preview-1.png)
+
+**Preview 2**
+
+![Sharp local UI preview (second screenshot)](docs/readme/ui-preview-2.png)
+
 ## Upstream: `ml-sharp` (git submodule)
 
 Apple’s inference code is **[ml-sharp](https://github.com/apple/ml-sharp)**, vendored as a **git submodule** at `./ml-sharp` (pinned to the commit recorded in this repo).
