@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SHARP</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="page-header">
+      <h1 class="title">SHARP</h1>
+      <p class="subtitle">Transform images into 3D Gaussian Splats.</p>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel-input" aria-label="Input">
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept="image/*,.heic,.heif" hidden />
+          <div class="drop-zone-inner" id="dropInner">
+            <span class="drop-icon" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+            </span>
+            <p class="drop-text">Drop images here or click to browse.</p>
+            <img id="previewImg" class="preview-img hidden" alt="" />
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" id="btnGenerate" disabled>Generate</button>
+        <div class="status-bar" id="statusBar" role="status">Ready</div>
+        <p class="hint">Inference runs locally via Python (PyTorch). First run downloads the model.</p>
+      </section>
+
+      <section class="panel panel-output" aria-label="Preview">
+        <div class="viewer-shell">
+          <div id="viewerHost" class="viewer-host"></div>
+          <div id="viewerPlaceholder" class="viewer-placeholder">
+            <span class="spark" aria-hidden="true">✦</span>
+            <p>Generate to preview</p>
+          </div>
+        </div>
+        <label class="control-label" for="splatScale">Splat size</label>
+        <input type="range" id="splatScale" class="range" min="0.25" max="3" step="0.05" value="1" disabled />
+        <p class="hint hint-keys">Arrow keys: ↑ or → forward · ↓ or ← back (dolly along view)</p>
+        <select id="sceneSelect" class="select" aria-label="Previous scenes">
+          <option value="">Previous scenes…</option>
+        </select>
+        <button type="button" class="btn btn-secondary" id="btnFullscreen">Open Fullscreen</button>
+      </section>
+    </main>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
