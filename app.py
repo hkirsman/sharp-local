@@ -73,8 +73,8 @@ _device: Optional[str] = None
 def _ensure_sharp_imports() -> None:
     if not ML_SHARP_SRC.is_dir():
         raise RuntimeError(
-            f"ml-sharp missing at {ML_SHARP_SRC}. Clone to resources/experiments/ml-sharp "
-            "or run: pip install -e <path-to-ml-sharp>"
+            f"ml-sharp missing at {ML_SHARP_SRC}. From the repo root run: "
+            "git submodule update --init ml-sharp or ./bootstrap.sh (see README)."
         )
     import sharp  # noqa: F401
 
