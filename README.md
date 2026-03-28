@@ -18,10 +18,12 @@ cd sharp-local
 If you already cloned **without** submodules:
 
 ```bash
-git submodule update --init --depth 1
+git submodule update --init
 ```
 
-`./bootstrap.sh` runs `git submodule update --init --depth 1 ml-sharp` when `./ml-sharp` is not yet checked out.
+`./bootstrap.sh` runs `git submodule update --init ml-sharp` when `./ml-sharp` is not yet checked out.
+
+Avoid `git submodule update --init --depth 1` unless you know the **pinned** `ml-sharp` commit is reachable from the remote’s default tip—a shallow fetch can omit older pins and fail checkout.
 
 ## Setup (macOS / Homebrew Python)
 

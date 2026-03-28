@@ -22,11 +22,11 @@ fi
 
 if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
   echo "Initializing ml-sharp submodule..." >&2
-  git -C "$ROOT" submodule update --init --depth 1 ml-sharp
+  git -C "$ROOT" submodule update --init ml-sharp
 fi
 
 if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
-  echo "ml-sharp still missing after submodule init. Try: git submodule update --init --depth 1" >&2
+  echo "ml-sharp still missing after submodule init. Try: git submodule update --init" >&2
   exit 1
 fi
 
