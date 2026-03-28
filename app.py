@@ -5,14 +5,15 @@ Inference runs in Python with PyTorch (CPU / MPS / CUDA), not in the browser.
 Homebrew Python blocks global pip (PEP 668). Use a venv — from this directory:
 
   ./bootstrap.sh
+  (Initializes the ml-sharp git submodule and installs into a venv.)
 
 Or manually:
 
+  git submodule update --init ml-sharp
   python3 -m venv .venv
   source .venv/bin/activate
   python3 -m pip install -U pip
   python3 -m pip install -e ./ml-sharp -r requirements.txt
-  # or: -e ../ml-sharp  if the repo lives beside experiments/
   python app.py
 """
 
@@ -29,29 +30,37 @@ from typing import Any, Optional
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
 EXPERIMENT_ROOT = Path(__file__).resolve().parent
-# Prefer ml-sharp inside this folder; fall back to resources/ml-sharp (sibling of experiments/).
-_ml_here = EXPERIMENT_ROOT / "ml-sharp" / "src"
-_ml_parent = EXPERIMENT_ROOT.parent / "ml-sharp" / "src"
-ML_SHARP_SRC = _ml_here if _ml_here.is_dir() else _ml_parent
+ML_SHARP_SRC = EXPERIMENT_ROOT / "ml-sharp" / "src"
 OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
 STATIC_DIR = EXPERIMENT_ROOT / "static"
+
+
+def _configure_logger(name: str) -> logging.Logger:
+    """This app’s logger at INFO, no propagation to root; add StreamHandler if none."""
+    log = logging.getLogger(name)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    if not log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+        log.addHandler(handler)
+    return log
+
+
+LOGGER = _configure_logger("sharp-web")
+# ml-sharp pulls in matplotlib; on macOS its font scan is noisy and harmless.
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
 if ML_SHARP_SRC.is_dir():
     import sys
 
     sys.path.insert(0, str(ML_SHARP_SRC))
 else:
-    logging.warning(
-        "ml-sharp not found at %s or %s — clone https://github.com/apple/ml-sharp",
-        _ml_here.parent,
-        _ml_parent.parent,
+    LOGGER.warning(
+        "ml-sharp not found at %s — run: git submodule update --init ml-sharp",
+        ML_SHARP_SRC.parent,
     )
-
-logging.basicConfig(level=logging.INFO)
-LOGGER = logging.getLogger("sharp-web")
-# ml-sharp pulls in matplotlib; on macOS its font scan is noisy and harmless.
-logging.getLogger("matplotlib").setLevel(logging.WARNING)
-logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
@@ -64,8 +73,8 @@ _device: Optional[str] = None
 def _ensure_sharp_imports() -> None:
     if not ML_SHARP_SRC.is_dir():
         raise RuntimeError(
-            f"ml-sharp missing at {ML_SHARP_SRC}. Clone to resources/experiments/ml-sharp "
-            "or run: pip install -e <path-to-ml-sharp>"
+            f"ml-sharp missing at {ML_SHARP_SRC}. From the repo root run: "
+            "git submodule update --init ml-sharp or ./bootstrap.sh (see README)."
         )
     import sharp  # noqa: F401
 
@@ -242,5 +251,6 @@ def generate() -> Any:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
