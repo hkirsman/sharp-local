@@ -5,14 +5,15 @@ Inference runs in Python with PyTorch (CPU / MPS / CUDA), not in the browser.
 Homebrew Python blocks global pip (PEP 668). Use a venv — from this directory:
 
   ./bootstrap.sh
+  (Initializes the ml-sharp git submodule and installs into a venv.)
 
 Or manually:
 
+  git submodule update --init --depth 1
   python3 -m venv .venv
   source .venv/bin/activate
   python3 -m pip install -U pip
   python3 -m pip install -e ./ml-sharp -r requirements.txt
-  # or: -e ../ml-sharp  if the repo lives beside experiments/
   python app.py
 """
 
@@ -29,10 +30,7 @@ from typing import Any, Optional
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
 EXPERIMENT_ROOT = Path(__file__).resolve().parent
-# Prefer ml-sharp inside this folder; fall back to resources/ml-sharp (sibling of experiments/).
-_ml_here = EXPERIMENT_ROOT / "ml-sharp" / "src"
-_ml_parent = EXPERIMENT_ROOT.parent / "ml-sharp" / "src"
-ML_SHARP_SRC = _ml_here if _ml_here.is_dir() else _ml_parent
+ML_SHARP_SRC = EXPERIMENT_ROOT / "ml-sharp" / "src"
 OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
 STATIC_DIR = EXPERIMENT_ROOT / "static"
 
@@ -42,9 +40,8 @@ if ML_SHARP_SRC.is_dir():
     sys.path.insert(0, str(ML_SHARP_SRC))
 else:
     logging.warning(
-        "ml-sharp not found at %s or %s — clone https://github.com/apple/ml-sharp",
-        _ml_here.parent,
-        _ml_parent.parent,
+        "ml-sharp not found at %s — run: git submodule update --init --depth 1",
+        ML_SHARP_SRC.parent,
     )
 
 logging.basicConfig(level=logging.INFO)

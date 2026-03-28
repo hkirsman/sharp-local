@@ -4,46 +4,49 @@ Small local app: upload an image → run [Apple SHARP](https://github.com/apple/
 
 Inference is **not** in the browser; only the UI and viewer are.
 
-## Layout
+## Upstream: `ml-sharp` (git submodule)
 
-Put **this folder** and a clone of **ml-sharp** together in either form:
+Apple’s inference code is **[ml-sharp](https://github.com/apple/ml-sharp)**, vendored as a **git submodule** at `./ml-sharp` (pinned to the commit recorded in this repo).
 
-- **Recommended:** `ml-sharp/` inside this directory (same level as `app.py`).
-- **Alternative:** `ml-sharp/` next to `experiments/` (i.e. `resources/ml-sharp`).
+Clone **with submodules**:
+
+```bash
+git clone --recurse-submodules https://github.com/<you>/sharp-local.git
+cd sharp-local
+```
+
+If you already cloned **without** submodules:
+
+```bash
+git submodule update --init --depth 1
+```
+
+`./bootstrap.sh` runs `git submodule update --init --depth 1 ml-sharp` when `./ml-sharp` is not yet checked out.
 
 ## Setup (macOS / Homebrew Python)
 
-Use a virtual environment (PEP 668 blocks global `pip`).
+Use a virtual environment (PEP 668 blocks global `pip`). From the repo root:
 
 ```bash
-cd resources/experiments
 ./bootstrap.sh
 ```
 
-If you do not have `ml-sharp` yet:
+You need **git** on your `PATH` so the submodule can be initialized.
+
+Manual equivalent (submodule already checked out):
 
 ```bash
-cd resources/experiments
-git clone https://github.com/apple/ml-sharp.git
-./bootstrap.sh
-```
-
-Manual equivalent:
-
-```bash
-cd resources/experiments
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -e ./ml-sharp -r requirements.txt
 ```
 
-(Use `../ml-sharp` instead of `./ml-sharp` if the repo lives beside `experiments/`.)
-
 ## Run
 
+From the directory that contains `app.py`:
+
 ```bash
-cd resources/experiments
 source .venv/bin/activate
 python app.py
 ```
@@ -64,7 +67,7 @@ The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hu
 
 ## Credits
 
-- **UI / idea:** The two-panel layout (upload + preview, generate, local run) and overall workflow were inspired by Rob de Winter’s walkthrough [“Apple SHARP + custom Three.js interface”](https://www.youtube.com/watch?v=8S57bfQ9w9A). This repository is independent community work—not affiliated with Apple, ml-sharp’s authors, or the video creator.
+- **UI / idea:** The two-panel layout (upload + preview, generate, local run) and overall workflow were inspired by [**Rob de Winter**](https://www.youtube.com/watch?v=8S57bfQ9w9A)’s walkthrough (“Apple SHARP + custom Three.js interface” on YouTube). This repository is independent community work—not affiliated with Apple, ml-sharp’s authors, or the video creator.
 - **3D Gaussian splat preview (browser):** [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D) by Mark Kellogg, consumed as [`@mkkellogg/gaussian-splats-3d@0.4.6`](https://unpkg.com/@mkkellogg/gaussian-splats-3d@0.4.6/) from the [unpkg](https://unpkg.com/) CDN (imported in `static/main.js`). npm listing: [`@mkkellogg/gaussian-splats-3d`](https://www.npmjs.com/package/@mkkellogg/gaussian-splats-3d). See the upstream [license](https://github.com/mkkellogg/GaussianSplats3D/blob/main/LICENSE).
 - **WebGL / math (browser):** [Three.js](https://threejs.org/) **r170** as an ES module, loaded via an import map from unpkg (`static/index.html`).
 - **Monocular splats (local inference):** [Apple ml-sharp](https://github.com/apple/ml-sharp) and its model weights; use is subject to their [LICENSE](https://github.com/apple/ml-sharp/blob/main/LICENSE) and [LICENSE_MODEL](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL).

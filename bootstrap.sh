@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
 # Create .venv and install ml-sharp + Flask (avoids Homebrew PEP 668 "externally-managed-environment").
+# ml-sharp is a git submodule at ./ml-sharp (see .gitmodules).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-ML_SHARP=""
-if [[ -d "$ROOT/ml-sharp" ]]; then
-  ML_SHARP="$ROOT/ml-sharp"
-elif [[ -d "$ROOT/../ml-sharp" ]]; then
-  ML_SHARP="$(cd "$ROOT/../ml-sharp" && pwd)"
-else
-  echo "Clone Apple ml-sharp into this folder (./ml-sharp) or next to experiments/ (../ml-sharp)." >&2
+if ! command -v git >/dev/null 2>&1; then
+  echo "git is required (ml-sharp is a submodule)." >&2
   exit 1
 fi
 
-python3 -m venv .venv
+if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "Run bootstrap from a git clone of this repo (ml-sharp is a submodule)." >&2
+  exit 1
+fi
+
+if [[ ! -f "$ROOT/.gitmodules" ]] || ! grep -qE '^[[:space:]]*path = ml-sharp[[:space:]]*$' "$ROOT/.gitmodules"; then
+  echo "Missing submodule config for ml-sharp (.gitmodules). This repository expects ml-sharp as a submodule." >&2
+  exit 1
+fi
+
+if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
+  echo "Initializing ml-sharp submodule..." >&2
+  git -C "$ROOT" submodule update --init --depth 1 ml-sharp
+fi
+
+if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
+  echo "ml-sharp still missing after submodule init. Try: git submodule update --init --depth 1" >&2
+  exit 1
+fi
+
+ML_SHARP="$ROOT/ml-sharp"
+
+if [[ ! -d .venv ]]; then
+  python3 -m venv .venv
+fi
 # shellcheck source=/dev/null
 source .venv/bin/activate
 python3 -m pip install -U pip
