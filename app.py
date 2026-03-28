@@ -34,21 +34,21 @@ ML_SHARP_SRC = EXPERIMENT_ROOT / "ml-sharp" / "src"
 OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
 STATIC_DIR = EXPERIMENT_ROOT / "static"
 
-if ML_SHARP_SRC.is_dir():
-    import sys
-
-    sys.path.insert(0, str(ML_SHARP_SRC))
-else:
-    logging.warning(
-        "ml-sharp not found at %s — run: git submodule update --init --depth 1",
-        ML_SHARP_SRC.parent,
-    )
-
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger("sharp-web")
 # ml-sharp pulls in matplotlib; on macOS its font scan is noisy and harmless.
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
+
+if ML_SHARP_SRC.is_dir():
+    import sys
+
+    sys.path.insert(0, str(ML_SHARP_SRC))
+else:
+    LOGGER.warning(
+        "ml-sharp not found at %s — run: git submodule update --init --depth 1",
+        ML_SHARP_SRC.parent,
+    )
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
