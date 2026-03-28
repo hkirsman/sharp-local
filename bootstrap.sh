@@ -20,13 +20,14 @@ if [[ ! -f "$ROOT/.gitmodules" ]] || ! grep -qE '^[[:space:]]*path = ml-sharp[[:
   exit 1
 fi
 
-if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
-  echo "Initializing ml-sharp submodule..." >&2
-  git -C "$ROOT" submodule update --init ml-sharp
-fi
+# Always sync: if ml-sharp exists but was checked out manually or on the wrong
+# commit, a pyproject-only check would skip fixing it. update --init is cheap when
+# the tree already matches the superproject’s recorded gitlink.
+echo "Syncing ml-sharp submodule to pinned commit..." >&2
+git -C "$ROOT" submodule update --init ml-sharp
 
 if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
-  echo "ml-sharp still missing after submodule init. Try: git submodule update --init" >&2
+  echo "ml-sharp still missing after submodule update. Try: git submodule update --init" >&2
   exit 1
 fi
 
