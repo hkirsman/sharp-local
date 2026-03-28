@@ -34,8 +34,20 @@ ML_SHARP_SRC = EXPERIMENT_ROOT / "ml-sharp" / "src"
 OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
 STATIC_DIR = EXPERIMENT_ROOT / "static"
 
-logging.basicConfig(level=logging.INFO)
-LOGGER = logging.getLogger("sharp-web")
+
+def _configure_logger(name: str) -> logging.Logger:
+    """Attach a handler only to this app’s logger (no root basicConfig on import)."""
+    log = logging.getLogger(name)
+    if not log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+        log.addHandler(handler)
+        log.setLevel(logging.INFO)
+        log.propagate = False
+    return log
+
+
+LOGGER = _configure_logger("sharp-web")
 # ml-sharp pulls in matplotlib; on macOS its font scan is noisy and harmless.
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
@@ -239,5 +251,6 @@ def generate() -> Any:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
