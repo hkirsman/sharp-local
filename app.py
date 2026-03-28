@@ -9,7 +9,7 @@ Homebrew Python blocks global pip (PEP 668). Use a venv — from this directory:
 
 Or manually:
 
-  git submodule update --init
+  git submodule update --init ml-sharp
   python3 -m venv .venv
   source .venv/bin/activate
   python3 -m pip install -U pip
@@ -58,7 +58,7 @@ if ML_SHARP_SRC.is_dir():
     sys.path.insert(0, str(ML_SHARP_SRC))
 else:
     LOGGER.warning(
-        "ml-sharp not found at %s — run: git submodule update --init",
+        "ml-sharp not found at %s — run: git submodule update --init ml-sharp",
         ML_SHARP_SRC.parent,
     )
 
