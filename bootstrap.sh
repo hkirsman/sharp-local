@@ -27,7 +27,7 @@ echo "Syncing ml-sharp submodule to pinned commit..." >&2
 git -C "$ROOT" submodule update --init ml-sharp
 
 if [[ ! -f "$ROOT/ml-sharp/pyproject.toml" ]]; then
-  echo "ml-sharp still missing after submodule update. Try: git submodule update --init" >&2
+  echo "ml-sharp still missing after submodule update. Try: git submodule update --init ml-sharp" >&2
   exit 1
 fi
 
