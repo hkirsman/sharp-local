@@ -11,7 +11,7 @@ Apple’s inference code is **[ml-sharp](https://github.com/apple/ml-sharp)**, v
 Clone **with submodules**:
 
 ```bash
-git clone --recurse-submodules https://github.com/<you>/sharp-local.git
+git clone --recurse-submodules https://github.com/hkirsman/sharp-local.git
 cd sharp-local
 ```
 
