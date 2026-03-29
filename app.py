@@ -19,6 +19,7 @@ Or manually:
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import threading
@@ -114,6 +115,32 @@ def _scene_id_ok(scene_id: str) -> bool:
         return False
 
 
+def _export_sharp_ply_to_spz(ply_path: Path, spz_path: Path) -> bool:
+    """Write Niantic-style .spz from SHARP splat.ply (vertex-only PLY for GaussForge)."""
+    try:
+        import gaussforge
+        from plyfile import PlyData, PlyElement
+    except ImportError:
+        LOGGER.warning("gaussforge or plyfile missing; install requirements.txt for .spz export")
+        return False
+    try:
+        plydata = PlyData.read(str(ply_path))
+        vertex_el = plydata["vertex"]
+        minimal = PlyData([PlyElement.describe(vertex_el.data, "vertex")])
+        buf = io.BytesIO()
+        minimal.write(buf)
+        result = gaussforge.GaussForge().convert(buf.getvalue(), "ply", "spz")
+        if "error" in result:
+            LOGGER.warning("SPZ conversion failed: %s", result.get("error"))
+            return False
+        raw = result["data"]
+        spz_path.write_bytes(raw if isinstance(raw, (bytes, bytearray)) else bytes(raw))
+        return True
+    except Exception:
+        LOGGER.exception("SPZ export failed for %s", ply_path)
+        return False
+
+
 @app.route("/favicon.ico")
 def favicon() -> Any:
     """Avoid 404 spam when the browser requests a default favicon."""
@@ -160,14 +187,15 @@ def list_scenes() -> Any:
                     label = original_name
             except (json.JSONDecodeError, OSError):
                 pass
-        scenes.append(
-            {
-                "id": d.name,
-                "label": label,
-                "original_name": original_name,
-                "mtime": ply.stat().st_mtime,
-            }
-        )
+        entry: dict[str, Any] = {
+            "id": d.name,
+            "label": label,
+            "original_name": original_name,
+            "mtime": ply.stat().st_mtime,
+        }
+        if (d / "splat.spz").is_file():
+            entry["spz_url"] = f"/api/scenes/{d.name}/splat.spz"
+        scenes.append(entry)
     scenes.sort(key=lambda s: s["mtime"], reverse=True)
     for s in scenes:
         del s["mtime"]
@@ -182,6 +210,16 @@ def get_splat(scene_id: str) -> Any:
     if not ply.is_file():
         return jsonify({"error": "Not found"}), 404
     return send_file(ply, mimetype="application/octet-stream", as_attachment=False)
+
+
+@app.route("/api/scenes/<scene_id>/splat.spz", methods=["GET"])
+def get_splat_spz(scene_id: str) -> Any:
+    if not _scene_id_ok(scene_id):
+        return jsonify({"error": "Invalid scene id"}), 400
+    spz = OUTPUTS_DIR / scene_id / "splat.spz"
+    if not spz.is_file():
+        return jsonify({"error": "Not found"}), 404
+    return send_file(spz, mimetype="application/octet-stream", as_attachment=False)
 
 
 @app.route("/api/generate", methods=["POST"])
@@ -232,22 +270,27 @@ def generate() -> Any:
             pass
         return jsonify({"error": "Inference failed; check server logs."}), 500
 
+    spz_path = scene_dir / "splat.spz"
+    has_spz = _export_sharp_ply_to_spz(ply_path, spz_path)
+
     meta = {
         "id": scene_id,
         "original_name": upload.filename,
         "created": datetime.now(timezone.utc).isoformat(),
         "width": width,
         "height": height,
+        "has_spz": has_spz,
     }
     (scene_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    return jsonify(
-        {
-            "id": scene_id,
-            "ply_url": f"/api/scenes/{scene_id}/splat.ply",
-            "label": upload.filename,
-        }
-    )
+    payload: dict[str, Any] = {
+        "id": scene_id,
+        "ply_url": f"/api/scenes/{scene_id}/splat.ply",
+        "label": upload.filename,
+    }
+    if has_spz:
+        payload["spz_url"] = f"/api/scenes/{scene_id}/splat.spz"
+    return jsonify(payload)
 
 
 if __name__ == "__main__":
