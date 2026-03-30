@@ -11,6 +11,9 @@ const viewerPlaceholder = document.getElementById("viewerPlaceholder");
 const sceneSelect = document.getElementById("sceneSelect");
 const btnFullscreen = document.getElementById("btnFullscreen");
 const splatScale = document.getElementById("splatScale");
+const limitSplatsCheck = document.getElementById("limitSplatsCheck");
+const maxSplatsInput = document.getElementById("maxSplatsInput");
+const splatInfo = document.getElementById("splatInfo");
 
 /** World-units per key press (fly mode); orbit mode scales slightly with distance. */
 const DOLLY_BASE = 0.14;
@@ -26,6 +29,50 @@ function setStatus(text, kind = "") {
   statusBar.textContent = text;
   statusBar.classList.remove("error", "working");
   if (kind) statusBar.classList.add(kind);
+}
+
+function formatSplatLine(count, full, limited) {
+  const c = Number(count).toLocaleString();
+  if (limited && full != null && Number(full) > Number(count)) {
+    return `Splats: ${c} (capped from ${Number(full).toLocaleString()})`;
+  }
+  return `Splats: ${c}`;
+}
+
+function setSplatInfoFromApi(data) {
+  if (!splatInfo || data.splat_count == null) return;
+  let text = formatSplatLine(
+    data.splat_count,
+    data.splat_count_full,
+    Boolean(data.splat_limit_applied)
+  );
+  if (data.decimate_error) {
+    text += ` — ${data.decimate_error}`;
+  }
+  splatInfo.textContent = text;
+}
+
+function setSplatInfoFromSelect() {
+  if (!splatInfo) return;
+  const opt = sceneSelect.selectedOptions[0];
+  if (!opt || !opt.value) {
+    splatInfo.textContent = "Splats: —";
+    return;
+  }
+  const c = opt.dataset.splatCount;
+  if (c === undefined || c === "") {
+    splatInfo.textContent = "Splats: —";
+    return;
+  }
+  let text = formatSplatLine(
+    Number(c),
+    opt.dataset.splatCountFull ? Number(opt.dataset.splatCountFull) : null,
+    opt.dataset.splatLimited === "1"
+  );
+  if (opt.dataset.decimateError) {
+    text += ` — ${opt.dataset.decimateError}`;
+  }
+  splatInfo.textContent = text;
 }
 
 async function disposeViewer() {
@@ -204,10 +251,20 @@ fileInput.addEventListener("change", () => {
   setPreviewFile(f || null);
 });
 
+limitSplatsCheck.addEventListener("change", () => {
+  maxSplatsInput.disabled = !limitSplatsCheck.checked;
+});
+
 btnGenerate.addEventListener("click", async () => {
   if (!currentFile) return;
   const fd = new FormData();
   fd.append("file", currentFile, currentFile.name);
+  if (limitSplatsCheck.checked) {
+    fd.append("limit_splats", "1");
+    const raw = parseInt(maxSplatsInput.value, 10);
+    const n = Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 10_000_000) : 500_000;
+    fd.append("max_splats", String(n));
+  }
   setStatus("Generating…", "working");
   btnGenerate.disabled = true;
   try {
@@ -219,6 +276,7 @@ btnGenerate.addEventListener("click", async () => {
       return;
     }
     setStatus("Ready");
+    setSplatInfoFromApi(data);
     await loadSplatUrl(data.ply_url);
     await refreshScenes(data.id);
     btnGenerate.disabled = false;
@@ -231,11 +289,16 @@ btnGenerate.addEventListener("click", async () => {
 
 sceneSelect.addEventListener("change", async () => {
   const id = sceneSelect.value;
-  if (!id) return;
+  if (!id) {
+    if (splatInfo) splatInfo.textContent = "Splats: —";
+    return;
+  }
+  setSplatInfoFromSelect();
   setStatus("Loading scene…", "working");
   try {
     await loadSplatUrl(`/api/scenes/${id}/splat.ply`);
     setStatus("Ready");
+    setSplatInfoFromSelect();
   } catch (err) {
     console.error(err);
     setStatus("Failed to load scene", "error");
@@ -261,6 +324,12 @@ async function refreshScenes(selectId = null) {
       const opt = document.createElement("option");
       opt.value = s.id;
       opt.textContent = s.label || s.id;
+      if (s.splat_count != null) {
+        opt.dataset.splatCount = String(s.splat_count);
+        if (s.splat_count_full != null) opt.dataset.splatCountFull = String(s.splat_count_full);
+        if (s.splat_limit_applied) opt.dataset.splatLimited = "1";
+        if (s.decimate_error) opt.dataset.decimateError = s.decimate_error;
+      }
       sceneSelect.appendChild(opt);
     }
     if (selectId) {

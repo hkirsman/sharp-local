@@ -35,6 +35,32 @@
             <img id="previewImg" class="preview-img hidden" alt="" />
           </div>
         </div>
+        <div class="splat-limit-row" role="group" aria-label="Splat count limit">
+          <label class="splat-limit-check">
+            <input type="checkbox" id="limitSplatsCheck" />
+            <span>Limit splat count</span>
+          </label>
+          <input
+            type="number"
+            id="maxSplatsInput"
+            class="splat-limit-input"
+            min="1"
+            max="10000000"
+            value="500000"
+            step="1"
+            disabled
+            aria-label="Maximum splats when limiting"
+          />
+        </div>
+        <p class="hint splat-limit-hint">
+          Full-quality PLY is written first, then
+          <a href="https://www.npmjs.com/package/@playcanvas/splat-transform" target="_blank" rel="noopener"
+            >splat-transform</a
+          >
+          decimates (pairwise merge). Requires <code>splat-transform</code> on PATH (<code
+            >npm i -g @playcanvas/splat-transform</code
+          >).
+        </p>
         <button type="button" class="btn btn-primary" id="btnGenerate" disabled>Generate</button>
         <div class="status-bar" id="statusBar" role="status">Ready</div>
         <p class="hint">Inference runs locally via Python (PyTorch). First run downloads the model.</p>
@@ -48,6 +74,7 @@
             <p>Generate to preview</p>
           </div>
         </div>
+        <p class="splat-info" id="splatInfo" aria-live="polite">Splats: —</p>
         <label class="control-label" for="splatScale">Splat size</label>
         <input type="range" id="splatScale" class="range" min="0.25" max="3" step="0.05" value="1" disabled />
         <p class="hint hint-keys">Arrow keys: ↑ or → forward · ↓ or ← back (dolly along view)</p>

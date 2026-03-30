@@ -130,6 +130,60 @@ body {
   display: none;
 }
 
+.splat-limit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.splat-limit-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.splat-limit-check input {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+}
+
+.splat-limit-input {
+  flex: 1;
+  min-width: 6rem;
+  max-width: 10rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-border);
+  background: #1a1a1a;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.splat-limit-input:focus {
+  outline: 1px solid #444;
+}
+
+.splat-limit-input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.splat-limit-hint {
+  margin: -0.35rem 0 0;
+}
+
+.splat-info {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .btn {
   border: none;
   border-radius: var(--radius-sm);
