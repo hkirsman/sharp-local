@@ -121,7 +121,9 @@ def _export_sharp_ply_to_spz(ply_path: Path, spz_path: Path) -> bool:
         import gaussforge
         from plyfile import PlyData, PlyElement
     except ImportError:
-        LOGGER.warning("gaussforge or plyfile missing; install requirements.txt for .spz export")
+        LOGGER.warning(
+            "gaussforge or plyfile not importable; run: pip install -e ./ml-sharp -r requirements.txt"
+        )
         return False
     try:
         plydata = PlyData.read(str(ply_path))
