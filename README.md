@@ -71,7 +71,7 @@ The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hu
 
 1. Drop an image (or browse). HEIC is supported if `pillow-heif` is installed (comes with ml-sharp).
 2. **Generate** — wait for inference (MPS/CUDA/CPU depending on your machine).
-3. Orbit with the mouse; **arrow keys** move along the view (↑/→ forward, ↓/← back); **Splat size** slider adjusts screen-space scale; **Previous scenes** reloads saved `.ply` files from `outputs/`.
+3. Orbit with the mouse; **arrow keys** move along the view (↑/→ forward, ↓/← back); **Splat size** slider adjusts screen-space scale; **Previous scenes** reloads saved scenes from `outputs/` (each run writes `splat.ply` for the web viewer and, when conversion succeeds, a compressed `splat.spz` for tools that use the [SPZ](https://github.com/nianticlabs/spz) format).
 
 ## References
 
@@ -83,5 +83,6 @@ The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hu
 - **3D Gaussian splat preview (browser):** [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D) by Mark Kellogg, consumed as [`@mkkellogg/gaussian-splats-3d@0.4.6`](https://unpkg.com/@mkkellogg/gaussian-splats-3d@0.4.6/) from the [unpkg](https://unpkg.com/) CDN (imported in `static/main.js`). npm listing: [`@mkkellogg/gaussian-splats-3d`](https://www.npmjs.com/package/@mkkellogg/gaussian-splats-3d). See the upstream [license](https://github.com/mkkellogg/GaussianSplats3D/blob/main/LICENSE).
 - **WebGL / math (browser):** [Three.js](https://threejs.org/) **r170** (npm `three@0.170.0`) as an ES module, loaded via an import map from unpkg in `static/index.html` (unpkg URLs use that semver, not `three@r170`).
 - **Monocular splats (local inference):** [Apple ml-sharp](https://github.com/apple/ml-sharp) and its model weights; use is subject to their [LICENSE](https://github.com/apple/ml-sharp/blob/main/LICENSE) and [LICENSE_MODEL](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL).
+- **SPZ export (optional sibling file):** [GaussForge](https://github.com/3dgscloud/GaussForge) converts vertex-only PLY to [Niantic SPZ](https://github.com/nianticlabs/spz) (`pip` package `gaussforge`); the in-browser viewer still uses `.ply`.
 
 Third-party scripts are fetched from **unpkg** at runtime in development-style setups; for stricter deployments, vendor these files or use your own CDN and integrity checks.
