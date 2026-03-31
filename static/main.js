@@ -251,9 +251,13 @@ fileInput.addEventListener("change", () => {
   setPreviewFile(f || null);
 });
 
-limitSplatsCheck.addEventListener("change", () => {
+function syncMaxSplatsInputDisabled() {
+  if (!limitSplatsCheck || !maxSplatsInput) return;
   maxSplatsInput.disabled = !limitSplatsCheck.checked;
-});
+}
+
+limitSplatsCheck.addEventListener("change", syncMaxSplatsInputDisabled);
+syncMaxSplatsInputDisabled();
 
 btnGenerate.addEventListener("click", async () => {
   if (!currentFile) return;
