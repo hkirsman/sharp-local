@@ -28,7 +28,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
@@ -168,7 +168,7 @@ def _decimate_ply_splat_transform(
         return False
 
 
-def _parse_splat_limit_form() -> Tuple[bool, Optional[int], Optional[str]]:
+def _parse_splat_limit_form() -> tuple[bool, Optional[int], Optional[str]]:
     """From multipart form: (limit_enabled, max_splats or None, error message or None)."""
     flag = (request.form.get("limit_splats") or "").strip().lower()
     active = flag in ("1", "true", "on", "yes")
