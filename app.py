@@ -118,10 +118,34 @@ def _scene_id_ok(scene_id: str) -> bool:
 
 
 def _count_ply_vertices(ply_path: Path) -> int:
-    from plyfile import PlyData
+    """Vertex count from the PLY header only (no full file decode).
 
-    plydata = PlyData.read(str(ply_path))
-    return int(plydata["vertex"].count)
+    SHARP splats can be huge; PlyData.read would parse every vertex just to
+    read ``element vertex N`` in the ASCII header before ``end_header``.
+    """
+    vertex_count: Optional[int] = None
+    with ply_path.open("r", encoding="ascii", errors="replace") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            if line == "end_header":
+                break
+            parts = line.split()
+            if (
+                len(parts) == 3
+                and parts[0] == "element"
+                and parts[1] == "vertex"
+            ):
+                try:
+                    vertex_count = int(parts[2])
+                except ValueError:
+                    pass
+    if vertex_count is None:
+        raise ValueError(
+            f"PLY header missing valid 'element vertex N' before end_header: {ply_path}"
+        )
+    return vertex_count
 
 
 def _decimate_ply_splat_transform(
