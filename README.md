@@ -67,6 +67,19 @@ Open **http://127.0.0.1:8765**
 
 The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`.
 
+### Batch folder tool (`sharp_local_batch`)
+
+**GUI:** uses **PySide6-Essentials** (Qt widgets only; smaller than the full `PySide6` metapackage that also downloads Addons). Falls back to **Tk** if it is missing. **CLI** needs no GUI toolkit.
+
+```bash
+python -m sharp_local_batch
+python -m sharp_local_batch --cli --folder /path/to/photos --recursive
+```
+
+**Homebrew Python without `_tkinter`:** use **PySide6-Essentials** from requirements; or `brew install python-tk@3.14` (match your Python minor) and recreate `.venv`; or use `--cli`.
+
+**Standalone build (PyInstaller):** with the repo venv active and `ml-sharp` present, run `pip install pyinstaller` then `pyinstaller packaging/sharp_batch.spec` from the repo root. The bundle is **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless). First inference still downloads the SHARP weights into the user cache unless you ship them separately.
+
 ## Using the UI
 
 1. Drop an image (or browse). HEIC is supported if `pillow-heif` is installed (comes with ml-sharp).

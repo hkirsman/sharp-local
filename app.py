@@ -23,8 +23,6 @@ import io
 import json
 import logging
 import shutil
-import subprocess
-import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,8 +30,18 @@ from typing import Any, Optional
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
+from sharp_local_batch.core import (
+    ML_SHARP_SRC,
+    PREDICT_LOCK,
+    count_ply_vertices,
+    decimate_ply_splat_transform,
+    ensure_sharp_imports,
+    get_predictor,
+    inference_device,
+    predictor_loaded,
+)
+
 EXPERIMENT_ROOT = Path(__file__).resolve().parent
-ML_SHARP_SRC = EXPERIMENT_ROOT / "ml-sharp" / "src"
 OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
 STATIC_DIR = EXPERIMENT_ROOT / "static"
 
@@ -55,58 +63,8 @@ LOGGER = _configure_logger("sharp-web")
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
-if ML_SHARP_SRC.is_dir():
-    import sys
-
-    sys.path.insert(0, str(ML_SHARP_SRC))
-else:
-    LOGGER.warning(
-        "ml-sharp not found at %s — run: git submodule update --init ml-sharp",
-        ML_SHARP_SRC.parent,
-    )
-
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
-
-_predict_lock = threading.Lock()
-_predictor: Any = None
-_device: Optional[str] = None
-
-
-def _ensure_sharp_imports() -> None:
-    if not ML_SHARP_SRC.is_dir():
-        raise RuntimeError(
-            f"ml-sharp missing at {ML_SHARP_SRC}. From the repo root run: "
-            "git submodule update --init ml-sharp or ./bootstrap.sh (see README)."
-        )
-    import sharp  # noqa: F401
-
-
-def get_predictor() -> tuple[Any, str]:
-    global _predictor, _device
-    _ensure_sharp_imports()
-    if _predictor is not None and _device is not None:
-        return _predictor, _device
-
-    import torch
-    from sharp.cli.predict import DEFAULT_MODEL_URL
-    from sharp.models import PredictorParams, create_predictor
-
-    if torch.cuda.is_available():
-        _device = "cuda"
-    elif torch.mps.is_available():
-        _device = "mps"
-    else:
-        _device = "cpu"
-
-    LOGGER.info("Loading SHARP checkpoint (first run may download weights) on %s", _device)
-    state_dict = torch.hub.load_state_dict_from_url(DEFAULT_MODEL_URL, progress=True)
-    predictor = create_predictor(PredictorParams())
-    predictor.load_state_dict(state_dict)
-    predictor.eval()
-    predictor.to(_device)
-    _predictor = predictor
-    return _predictor, _device
 
 
 def _scene_id_ok(scene_id: str) -> bool:
@@ -114,81 +72,6 @@ def _scene_id_ok(scene_id: str) -> bool:
         uuid.UUID(scene_id)
         return True
     except ValueError:
-        return False
-
-
-def _count_ply_vertices(ply_path: Path) -> int:
-    """Vertex count from the PLY header only (no full file decode).
-
-    SHARP splats can be huge; PlyData.read would parse every vertex just to
-    read ``element vertex N`` in the ASCII header before ``end_header``.
-    """
-    vertex_count: Optional[int] = None
-    with ply_path.open("r", encoding="ascii", errors="replace") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line:
-                continue
-            if line == "end_header":
-                break
-            parts = line.split()
-            if (
-                len(parts) == 3
-                and parts[0] == "element"
-                and parts[1] == "vertex"
-            ):
-                try:
-                    vertex_count = int(parts[2])
-                except ValueError:
-                    pass
-    if vertex_count is None:
-        raise ValueError(
-            f"PLY header missing valid 'element vertex N' before end_header: {ply_path}"
-        )
-    return vertex_count
-
-
-def _decimate_ply_splat_transform(
-    ply_path: Path, target_count: int, timeout_sec: int = 7200
-) -> bool:
-    """Decimate in place via PlayCanvas splat-transform (full PLY must exist)."""
-    exe = shutil.which("splat-transform")
-    if not exe:
-        LOGGER.warning(
-            "splat-transform not on PATH; install: npm install -g @playcanvas/splat-transform"
-        )
-        return False
-    tmp_out = ply_path.with_name("_splat_decimated_tmp.ply")
-    try:
-        tmp_out.unlink(missing_ok=True)
-        cmd = [exe, str(ply_path), "--decimate", str(target_count), str(tmp_out)]
-        r = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-        )
-        if r.returncode != 0:
-            err = (r.stderr or r.stdout or "").strip()
-            LOGGER.warning(
-                "splat-transform failed (exit %s): %s",
-                r.returncode,
-                err[:2000] if err else "(no output)",
-            )
-            tmp_out.unlink(missing_ok=True)
-            return False
-        if not tmp_out.is_file():
-            LOGGER.warning("splat-transform produced no output file")
-            return False
-        tmp_out.replace(ply_path)
-        return True
-    except subprocess.TimeoutExpired:
-        LOGGER.warning("splat-transform timed out after %s s", timeout_sec)
-        tmp_out.unlink(missing_ok=True)
-        return False
-    except OSError as e:
-        LOGGER.warning("splat-transform output handling failed: %s", e)
-        tmp_out.unlink(missing_ok=True)
         return False
 
 
@@ -260,8 +143,8 @@ def health() -> Any:
             "ok": True,
             "ml_sharp_path": str(ML_SHARP_SRC),
             "ml_sharp_present": ok,
-            "model_loaded": _predictor is not None,
-            "device": _device,
+            "model_loaded": predictor_loaded(),
+            "device": inference_device(),
         }
     )
 
@@ -339,7 +222,7 @@ def generate() -> Any:
     if not upload.filename:
         return jsonify({"error": "Empty filename"}), 400
 
-    _ensure_sharp_imports()
+    ensure_sharp_imports()
     from sharp.utils import io as sharp_io
     from sharp.utils.gaussians import save_ply
 
@@ -365,7 +248,7 @@ def generate() -> Any:
     import torch
 
     try:
-        with _predict_lock:
+        with PREDICT_LOCK:
             predictor, device_str = get_predictor()
             image, _, f_px = sharp_io.load_rgb(input_path)
             height, width = int(image.shape[0]), int(image.shape[1])
@@ -381,15 +264,15 @@ def generate() -> Any:
             pass
         return jsonify({"error": "Inference failed; check server logs."}), 500
 
-    splat_count_full = _count_ply_vertices(ply_path)
+    splat_count_full = count_ply_vertices(ply_path)
     splat_count = splat_count_full
     limit_applied = False
     decimate_error: Optional[str] = None
 
     if limit_on and max_splats is not None:
         if splat_count_full > max_splats:
-            if _decimate_ply_splat_transform(ply_path, max_splats):
-                splat_count = _count_ply_vertices(ply_path)
+            if decimate_ply_splat_transform(ply_path, max_splats):
+                splat_count = count_ply_vertices(ply_path)
                 limit_applied = splat_count < splat_count_full
             else:
                 decimate_error = (
