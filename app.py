@@ -22,6 +22,8 @@ from __future__ import annotations
 import io
 import json
 import logging
+import shutil
+import subprocess
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -115,6 +117,102 @@ def _scene_id_ok(scene_id: str) -> bool:
         return False
 
 
+def _count_ply_vertices(ply_path: Path) -> int:
+    """Vertex count from the PLY header only (no full file decode).
+
+    SHARP splats can be huge; PlyData.read would parse every vertex just to
+    read ``element vertex N`` in the ASCII header before ``end_header``.
+    """
+    vertex_count: Optional[int] = None
+    with ply_path.open("r", encoding="ascii", errors="replace") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            if line == "end_header":
+                break
+            parts = line.split()
+            if (
+                len(parts) == 3
+                and parts[0] == "element"
+                and parts[1] == "vertex"
+            ):
+                try:
+                    vertex_count = int(parts[2])
+                except ValueError:
+                    pass
+    if vertex_count is None:
+        raise ValueError(
+            f"PLY header missing valid 'element vertex N' before end_header: {ply_path}"
+        )
+    return vertex_count
+
+
+def _decimate_ply_splat_transform(
+    ply_path: Path, target_count: int, timeout_sec: int = 7200
+) -> bool:
+    """Decimate in place via PlayCanvas splat-transform (full PLY must exist)."""
+    exe = shutil.which("splat-transform")
+    if not exe:
+        LOGGER.warning(
+            "splat-transform not on PATH; install: npm install -g @playcanvas/splat-transform"
+        )
+        return False
+    tmp_out = ply_path.with_name("_splat_decimated_tmp.ply")
+    try:
+        tmp_out.unlink(missing_ok=True)
+        cmd = [exe, str(ply_path), "--decimate", str(target_count), str(tmp_out)]
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "").strip()
+            LOGGER.warning(
+                "splat-transform failed (exit %s): %s",
+                r.returncode,
+                err[:2000] if err else "(no output)",
+            )
+            tmp_out.unlink(missing_ok=True)
+            return False
+        if not tmp_out.is_file():
+            LOGGER.warning("splat-transform produced no output file")
+            return False
+        tmp_out.replace(ply_path)
+        return True
+    except subprocess.TimeoutExpired:
+        LOGGER.warning("splat-transform timed out after %s s", timeout_sec)
+        tmp_out.unlink(missing_ok=True)
+        return False
+    except OSError as e:
+        LOGGER.warning("splat-transform output handling failed: %s", e)
+        tmp_out.unlink(missing_ok=True)
+        return False
+
+
+def _parse_splat_limit_form() -> tuple[bool, Optional[int], Optional[str]]:
+    """From multipart form: (limit_enabled, max_splats or None, error message or None)."""
+    flag = (request.form.get("limit_splats") or "").strip().lower()
+    active = flag in ("1", "true", "on", "yes")
+    if not active:
+        return False, None, None
+    raw = (request.form.get("max_splats") or "").strip()
+    if not raw:
+        return True, None, "max_splats is required when limit splats is enabled"
+    try:
+        n = int(raw, 10)
+    except ValueError:
+        return True, None, "max_splats must be an integer"
+    if n < 1:
+        return True, None, "max_splats must be at least 1"
+    cap = 10_000_000
+    if n > cap:
+        return True, None, f"max_splats cannot exceed {cap:,}"
+    return True, n, None
+
+
 def _export_sharp_ply_to_spz(ply_path: Path, spz_path: Path) -> bool:
     """Write Niantic-style .spz from SHARP splat.ply (vertex-only PLY for GaussForge)."""
     try:
@@ -181,6 +279,7 @@ def list_scenes() -> Any:
         meta_path = d / "meta.json"
         label = d.name[:8] + "…"
         original_name = ""
+        meta: dict[str, Any] = {}
         if meta_path.is_file():
             try:
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -188,13 +287,21 @@ def list_scenes() -> Any:
                 if original_name:
                     label = original_name
             except (json.JSONDecodeError, OSError):
-                pass
+                meta = {}
         entry: dict[str, Any] = {
             "id": d.name,
             "label": label,
             "original_name": original_name,
             "mtime": ply.stat().st_mtime,
         }
+        if "splat_count" in meta:
+            entry["splat_count"] = meta["splat_count"]
+        if "splat_count_full" in meta:
+            entry["splat_count_full"] = meta["splat_count_full"]
+        if meta.get("splat_limit_applied"):
+            entry["splat_limit_applied"] = True
+        if meta.get("decimate_error"):
+            entry["decimate_error"] = meta["decimate_error"]
         if (d / "splat.spz").is_file():
             entry["spz_url"] = f"/api/scenes/{d.name}/splat.spz"
         scenes.append(entry)
@@ -243,6 +350,10 @@ def generate() -> Any:
     if ext not in allowed:
         return jsonify({"error": f"Unsupported image type: {ext or '(none)'}"}), 400
 
+    limit_on, max_splats, limit_err = _parse_splat_limit_form()
+    if limit_err:
+        return jsonify({"error": limit_err}), 400
+
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     scene_id = str(uuid.uuid4())
     scene_dir = OUTPUTS_DIR / scene_id
@@ -265,12 +376,26 @@ def generate() -> Any:
     except Exception:
         LOGGER.exception("Inference failed for %s", input_path)
         try:
-            import shutil
-
             shutil.rmtree(scene_dir, ignore_errors=True)
         except OSError:
             pass
         return jsonify({"error": "Inference failed; check server logs."}), 500
+
+    splat_count_full = _count_ply_vertices(ply_path)
+    splat_count = splat_count_full
+    limit_applied = False
+    decimate_error: Optional[str] = None
+
+    if limit_on and max_splats is not None:
+        if splat_count_full > max_splats:
+            if _decimate_ply_splat_transform(ply_path, max_splats):
+                splat_count = _count_ply_vertices(ply_path)
+                limit_applied = splat_count < splat_count_full
+            else:
+                decimate_error = (
+                    "Decimation failed or splat-transform missing; "
+                    "install: npm install -g @playcanvas/splat-transform"
+                )
 
     spz_path = scene_dir / "splat.spz"
     has_spz = _export_sharp_ply_to_spz(ply_path, spz_path)
@@ -282,14 +407,24 @@ def generate() -> Any:
         "width": width,
         "height": height,
         "has_spz": has_spz,
+        "splat_count": splat_count,
+        "splat_count_full": splat_count_full,
+        "splat_limit_applied": limit_applied,
     }
+    if decimate_error:
+        meta["decimate_error"] = decimate_error
     (scene_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     payload: dict[str, Any] = {
         "id": scene_id,
         "ply_url": f"/api/scenes/{scene_id}/splat.ply",
         "label": upload.filename,
+        "splat_count": splat_count,
+        "splat_count_full": splat_count_full,
+        "splat_limit_applied": limit_applied,
     }
+    if decimate_error:
+        payload["decimate_error"] = decimate_error
     if has_spz:
         payload["spz_url"] = f"/api/scenes/{scene_id}/splat.spz"
     return jsonify(payload)
