@@ -188,8 +188,86 @@ def sidecar_ply_path(image_path: Path) -> Path:
     return image_path.with_suffix(".ply")
 
 
-def needs_ply_refresh(image_path: Path) -> bool:
-    ply = sidecar_ply_path(image_path)
+def default_macos_photos_library_path() -> Path:
+    """Default Apple Photos library bundle path (macOS)."""
+    return Path.home() / "Pictures" / "Photos Library.photoslibrary"
+
+
+def is_photos_library_bundle(path: Path) -> bool:
+    """True if ``path`` is a ``.photoslibrary`` package (do not write PLY inside)."""
+    try:
+        p = path.resolve()
+        return p.is_dir() and p.suffix.lower() == ".photoslibrary"
+    except OSError:
+        return False
+
+
+def effective_batch_scan_root(library_or_folder: Path) -> Path:
+    """Directory to enumerate for images.
+
+    Apple Photos stores downloadable originals under ``originals/`` (and older
+    libraries may use ``Masters/``) inside the ``.photoslibrary`` bundle — same
+    as ``backend/api.py`` (``PHOTO_DIRS`` / iCloud discovery). Scanning the
+    bundle root alone often misses those files.
+    """
+    try:
+        p = library_or_folder.resolve()
+    except OSError:
+        return library_or_folder
+    if not is_photos_library_bundle(p):
+        return p
+    originals = p / "originals"
+    if originals.is_dir():
+        return originals
+    masters = p / "Masters"
+    if masters.is_dir():
+        return masters
+    return p
+
+
+PHOTOS_LIBRARY_MIRROR_HELP = (
+    "A Photos Library.photoslibrary bundle cannot store PLY files next to originals. "
+    "Enable mirror output and choose a target folder for mirror outside that package."
+)
+
+
+def mirrored_ply_path(image_path: Path, input_root: Path, output_root: Path) -> Path:
+    """PLY path under ``output_root`` mirroring a relative path under the home folder.
+
+    When the image resolves under the user's home directory (e.g.
+    ``~/Pictures/Photos Library.photoslibrary/originals/…``), the mirror
+    layout is ``<output_root>/Pictures/Photos Library.photoslibrary/originals/…``
+    so the tree is unambiguous and not only ``originals/…``. Otherwise the
+    path is relative to ``input_root`` (unchanged behavior for paths outside
+    home, e.g. external volumes).
+    """
+    img = image_path.resolve()
+    out_r = output_root.resolve()
+    try:
+        home_r = Path.home().resolve()
+        rel = img.relative_to(home_r)
+    except (ValueError, OSError):
+        rel = img.relative_to(input_root.resolve())
+    return (out_r / rel).with_suffix(".ply")
+
+
+def output_ply_path_for_job(
+    image_path: Path,
+    *,
+    mirror_output_root: Optional[Path],
+    mirror_input_root: Optional[Path],
+) -> Path:
+    """Sidecar next to the image, or mirrored under ``mirror_output_root`` when set."""
+    img = image_path.resolve()
+    if mirror_output_root is None:
+        return sidecar_ply_path(img)
+    if mirror_input_root is None:
+        raise ValueError("mirror_input_root is required when mirror_output_root is set")
+    return mirrored_ply_path(img, mirror_input_root, mirror_output_root)
+
+
+def needs_ply_refresh(image_path: Path, ply_path: Optional[Path] = None) -> bool:
+    ply = sidecar_ply_path(image_path) if ply_path is None else ply_path
     if not ply.is_file():
         return True
     try:
@@ -216,10 +294,11 @@ def process_image_to_sidecar_ply(
     *,
     limit_splats: bool = False,
     max_splats: Optional[int] = None,
+    ply_output_path: Optional[Path] = None,
 ) -> PlySidecarResult:
-    """Run SHARP on ``image_path`` and write ``<stem>.ply`` beside it; optional decimate."""
+    """Run SHARP on ``image_path`` and write PLY beside it or at ``ply_output_path``; optional decimate."""
     image_path = image_path.resolve()
-    ply_path = sidecar_ply_path(image_path)
+    ply_path = sidecar_ply_path(image_path) if ply_output_path is None else ply_output_path.resolve()
 
     if not is_supported_image(image_path):
         return PlySidecarResult(

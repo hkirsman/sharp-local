@@ -74,7 +74,17 @@ The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hu
 ```bash
 python -m sharp_local_batch
 python -m sharp_local_batch --cli --folder /path/to/photos --recursive
+# PLY under another tree (under ~: path from home, e.g. Pictures/…; else relative to --folder):
+python -m sharp_local_batch --cli --folder /path/to/photos --recursive \
+  --output-root /path/to/splat_mirror
+# macOS system library (PLY must not be written inside the bundle — mirror required):
+python -m sharp_local_batch --cli --folder ~/Pictures/Photos\ Library.photoslibrary \
+  --recursive --output-root /path/to/splat_mirror
 ```
+
+On **macOS**, the GUI can enable **Use Apple Photos library bundle** — scan/watch always use **`~/Pictures/Photos Library.photoslibrary`** (the system library package) while that option is on, with mirrored PLY output; pick a **target folder for mirror** outside that bundle. Images are collected from **`originals/`** (or older libraries **`Masters/`**) inside the package, same as **`backend/api.py`** iCloud discovery — not only the bundle root. For the CLI, any **`.photoslibrary`** path passed to **`--folder`** requires **`--output-root`** and uses the same rules.
+
+In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror** (must differ from the source folder). Default remains **next to each image**. For images under your home folder, mirrored PLY paths repeat from home (e.g. **`Pictures/Photos Library.photoslibrary/originals/…`**) instead of only **`originals/…`**; sources outside home still mirror relative to the chosen source root.
 
 **Homebrew Python without `_tkinter`:** use **PySide6-Essentials** from requirements; or `brew install python-tk@3.14` (match your Python minor) and recreate `.venv`; or use `--cli`.
 

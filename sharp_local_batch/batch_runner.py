@@ -12,9 +12,12 @@ from watchdog.observers import Observer
 
 from sharp_local_batch.core import (
     PlySidecarResult,
+    effective_batch_scan_root,
     is_supported_image,
     list_image_paths,
+    mirrored_ply_path,
     needs_ply_refresh,
+    output_ply_path_for_job,
     process_image_to_sidecar_ply,
     sidecar_ply_path,
 )
@@ -25,12 +28,22 @@ def scan_jobs(
     recursive: bool,
     *,
     force_all: bool,
+    mirror_output_root: Optional[Path] = None,
 ) -> list[Path]:
     """Images under ``root`` that need work (or all images if ``force_all``)."""
-    paths = list_image_paths(root, recursive)
+    scan_root = effective_batch_scan_root(root)
+    paths = list_image_paths(scan_root, recursive)
     if force_all:
         return paths
-    return [p for p in paths if needs_ply_refresh(p)]
+    root_r = root.resolve()
+    if mirror_output_root is None:
+        return [p for p in paths if needs_ply_refresh(p)]
+    out_r = mirror_output_root.resolve()
+    return [
+        p
+        for p in paths
+        if needs_ply_refresh(p, mirrored_ply_path(p, root_r, out_r))
+    ]
 
 
 class DebouncedScheduler:
@@ -111,7 +124,8 @@ class WatchController:
         if self._observer is not None:
             return
         obs = Observer()
-        obs.schedule(self._handler, str(self._root), recursive=self._recursive)
+        watch_path = effective_batch_scan_root(self._root)
+        obs.schedule(self._handler, str(watch_path), recursive=self._recursive)
         obs.start()
         self._observer = obs
 
@@ -130,6 +144,8 @@ def worker_loop(
     limit_splats: bool,
     max_splats: Optional[int],
     skip_up_to_date: bool,
+    mirror_output_root: Optional[Path],
+    mirror_input_root: Optional[Path],
     on_result: Callable[[PlySidecarResult], None],
 ) -> None:
     """Drain ``job_q`` until ``None`` sentinel or ``stop_event``."""
@@ -150,12 +166,28 @@ def worker_loop(
         if stop_event.is_set():
             break
         image_path = item.resolve()
-        if skip_up_to_date and not needs_ply_refresh(image_path):
+        try:
+            ply_target = output_ply_path_for_job(
+                image_path,
+                mirror_output_root=mirror_output_root,
+                mirror_input_root=mirror_input_root,
+            )
+        except ValueError as e:
+            on_result(
+                PlySidecarResult(
+                    ok=False,
+                    image_path=image_path,
+                    ply_path=sidecar_ply_path(image_path),
+                    message=str(e),
+                )
+            )
+            continue
+        if skip_up_to_date and not needs_ply_refresh(image_path, ply_target):
             on_result(
                 PlySidecarResult(
                     ok=True,
                     image_path=image_path,
-                    ply_path=sidecar_ply_path(image_path),
+                    ply_path=ply_target,
                     message="Skipped (PLY up to date)",
                     skipped=True,
                 )
@@ -166,5 +198,6 @@ def worker_loop(
                 image_path,
                 limit_splats=limit_splats,
                 max_splats=max_splats,
+                ply_output_path=ply_target,
             )
         )

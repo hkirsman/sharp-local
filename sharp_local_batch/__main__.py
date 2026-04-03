@@ -7,16 +7,26 @@ import sys
 from pathlib import Path
 
 from sharp_local_batch.batch_runner import scan_jobs
-from sharp_local_batch.core import process_image_to_sidecar_ply
+from sharp_local_batch.core import (
+    PHOTOS_LIBRARY_MIRROR_HELP,
+    is_photos_library_bundle,
+    output_ply_path_for_job,
+    process_image_to_sidecar_ply,
+)
 
 
 def _cli_main() -> int:
-    p = argparse.ArgumentParser(description="SHARP batch: PLY next to each image.")
+    p = argparse.ArgumentParser(
+        description="SHARP batch: PLY beside each image, or under --output-root when mirroring.",
+    )
     p.add_argument(
         "--folder",
         type=Path,
         required=True,
-        help="Root folder to scan",
+        help=(
+            "Root path to scan (a directory of images, or a macOS "
+            "Photos Library.photoslibrary bundle — the latter requires --output-root)"
+        ),
     )
     p.add_argument(
         "--recursive",
@@ -39,6 +49,15 @@ def _cli_main() -> int:
         default=500_000,
         help="Target splat count when --limit-splats (default 500000)",
     )
+    p.add_argument(
+        "--output-root",
+        type=Path,
+        default=None,
+        help=(
+            "Write PLY files under this folder; under ~ mirror path from home, else "
+            "relative to --folder (default: next to each image)"
+        ),
+    )
     args = p.parse_args()
 
     root = args.folder.expanduser().resolve()
@@ -46,7 +65,25 @@ def _cli_main() -> int:
         print(f"Not a directory: {root}", file=sys.stderr)
         return 1
 
-    jobs = scan_jobs(root, args.recursive, force_all=args.force_all)
+    mirror_out: Path | None = None
+    if args.output_root is not None:
+        mirror_out = args.output_root.expanduser().resolve()
+        if mirror_out == root:
+            print("--output-root must differ from --folder", file=sys.stderr)
+            return 1
+        mirror_out.mkdir(parents=True, exist_ok=True)
+
+    if is_photos_library_bundle(root) and mirror_out is None:
+        print(PHOTOS_LIBRARY_MIRROR_HELP, file=sys.stderr)
+        print("Use: --output-root /path/outside/library", file=sys.stderr)
+        return 1
+
+    jobs = scan_jobs(
+        root,
+        args.recursive,
+        force_all=args.force_all,
+        mirror_output_root=mirror_out,
+    )
     if not jobs:
         print("No images need processing.")
         return 0
@@ -60,10 +97,21 @@ def _cli_main() -> int:
     exit_code = 0
     for i, path in enumerate(jobs, start=1):
         print(f"[{i}/{n}] {path}", flush=True)
+        try:
+            ply_target = output_ply_path_for_job(
+                path,
+                mirror_output_root=mirror_out,
+                mirror_input_root=root if mirror_out is not None else None,
+            )
+        except ValueError as e:
+            print(f"    err: {e}", flush=True)
+            exit_code = 1
+            continue
         r = process_image_to_sidecar_ply(
             path,
             limit_splats=args.limit_splats,
             max_splats=max_s,
+            ply_output_path=ply_target,
         )
         tag = "ok" if r.ok else "err"
         if r.skipped:

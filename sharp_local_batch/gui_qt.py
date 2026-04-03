@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 from pathlib import Path
 
@@ -27,8 +28,12 @@ from PySide6.QtWidgets import (
 
 from sharp_local_batch.batch_runner import WatchController, scan_jobs
 from sharp_local_batch.core import (
+    PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
+    default_macos_photos_library_path,
+    is_photos_library_bundle,
     needs_ply_refresh,
+    output_ply_path_for_job,
     process_image_to_sidecar_ply,
     sidecar_ply_path,
 )
@@ -57,6 +62,8 @@ class SharpBatchQtWindow(QMainWindow):
         self._batch_done = 0
         self._watch: WatchController | None = None
         self._processed_session = 0
+        self._snap_mirror_output: Path | None = None
+        self._snap_input_root: Path | None = None
 
         self._bridge = _Bridge()
         self._bridge.job_finished.connect(self._on_job_done, Qt.QueuedConnection)
@@ -74,6 +81,39 @@ class SharpBatchQtWindow(QMainWindow):
         browse.clicked.connect(self._browse)
         row1.addWidget(browse)
         layout.addLayout(row1)
+
+        self._photos_lib_chk: QCheckBox | None = None
+        if sys.platform == "darwin":
+            self._photos_lib_chk = QCheckBox(
+                "Use Apple Photos library bundle (Photos Library.photoslibrary; "
+                "mirror required)"
+            )
+            self._photos_lib_chk.toggled.connect(self._on_photos_lib_toggled)
+            layout.addWidget(self._photos_lib_chk)
+
+        row1b = QHBoxLayout()
+        self._mirror_chk = QCheckBox("Mirror PLY output (same subfolders under target)")
+        self._mirror_chk.toggled.connect(self._sync_mirror_widgets)
+        row1b.addWidget(self._mirror_chk)
+        layout.addLayout(row1b)
+        mirror_hint = QLabel(
+            "Example: ~/Photos/source/folder1/example.jpg → "
+            "target_mirror/Photos/source/folder1/example.ply "
+            "(path under the mirror target repeats from your home folder)."
+        )
+        mirror_hint.setWordWrap(True)
+        mirror_hint.setStyleSheet("color: #666;")
+        layout.addWidget(mirror_hint)
+
+        row1c = QHBoxLayout()
+        row1c.addWidget(QLabel("Target folder for mirror"))
+        self._output_mirror_edit = QLineEdit()
+        row1c.addWidget(self._output_mirror_edit, stretch=1)
+        self._mirror_browse_btn = QPushButton("Browse…")
+        self._mirror_browse_btn.clicked.connect(self._browse_mirror)
+        row1c.addWidget(self._mirror_browse_btn)
+        layout.addLayout(row1c)
+        self._sync_mirror_widgets(False)
 
         row2 = QHBoxLayout()
         self._recursive_chk = QCheckBox("Include subfolders")
@@ -126,8 +166,9 @@ class SharpBatchQtWindow(QMainWindow):
         layout.addWidget(self._log, stretch=1)
 
         hint = (
-            "Writes <name>.ply next to each image. "
-            "Optional cap uses splat-transform (npm i -g @playcanvas/splat-transform)."
+            "PLY next to each image when mirror output is off; with mirror on, PLY goes "
+            "under the target folder for mirror. Optional cap uses splat-transform "
+            "(npm i -g @playcanvas/splat-transform)."
         )
         foot = QLabel(hint)
         foot.setWordWrap(True)
@@ -139,10 +180,45 @@ class SharpBatchQtWindow(QMainWindow):
     def _sync_limit_widgets(self) -> None:
         self._max_edit.setEnabled(self._limit_chk.isChecked())
 
+    def _sync_mirror_widgets(self, _checked: bool) -> None:
+        on = self._mirror_chk.isChecked()
+        self._output_mirror_edit.setEnabled(on)
+        self._mirror_browse_btn.setEnabled(on)
+
     def _browse(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Select folder")
         if d:
             self._folder_edit.setText(d)
+
+    def _browse_mirror(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Select target folder for mirror")
+        if d:
+            self._output_mirror_edit.setText(d)
+
+    @Slot(bool)
+    def _on_photos_lib_toggled(self, checked: bool) -> None:
+        if not checked:
+            self._mirror_chk.setEnabled(True)
+            return
+        lib = default_macos_photos_library_path()
+        if not lib.is_dir():
+            QMessageBox.warning(
+                self,
+                "Apple Photos library",
+                f"Photos Library.photoslibrary not found:\n{lib}",
+            )
+            self._photos_lib_chk.setChecked(False)
+            return
+        self._folder_edit.setText(str(lib))
+        self._mirror_chk.setChecked(True)
+        self._mirror_chk.setEnabled(False)
+
+    def _apple_photos_bundle_mode(self) -> bool:
+        return (
+            sys.platform == "darwin"
+            and self._photos_lib_chk is not None
+            and self._photos_lib_chk.isChecked()
+        )
 
     def _snapshot_opts(self) -> None:
         lim = self._limit_chk.isChecked()
@@ -150,10 +226,27 @@ class SharpBatchQtWindow(QMainWindow):
         if lim and mx is None:
             mx = 500_000
         skip = self._skip_chk.isChecked()
+        mirror = self._mirror_chk.isChecked()
+        m_out: Path | None = None
+        i_root: Path | None = None
+        if mirror:
+            mor = self._output_mirror_edit.text().strip()
+            if mor:
+                m_out = Path(mor).expanduser().resolve()
+            if self._apple_photos_bundle_mode():
+                lib = default_macos_photos_library_path().expanduser().resolve()
+                if lib.is_dir():
+                    i_root = lib
+            else:
+                fr = self._folder_edit.text().strip()
+                if fr:
+                    i_root = Path(fr).expanduser().resolve()
         with self._opts_lock:
             self._snap_lim = bool(lim)
             self._snap_max = mx if lim else None
             self._snap_skip = skip
+            self._snap_mirror_output = m_out
+            self._snap_input_root = i_root
 
     def _parse_max_splats(self) -> int | None:
         if not self._limit_chk.isChecked():
@@ -183,19 +276,55 @@ class SharpBatchQtWindow(QMainWindow):
     def _on_scan(self) -> None:
         if not self._limit_options_valid():
             return
-        raw = self._folder_edit.text().strip()
-        if not raw:
-            QMessageBox.warning(self, "Folder", "Choose a folder first.")
-            return
-        root = Path(raw).expanduser()
-        if not root.is_dir():
-            QMessageBox.critical(self, "Folder", f"Not a directory: {root}")
+        if self._apple_photos_bundle_mode():
+            root = default_macos_photos_library_path().expanduser().resolve()
+            if not root.is_dir():
+                QMessageBox.critical(
+                    self,
+                    "Apple Photos library",
+                    f"Photos Library.photoslibrary not found:\n{root}",
+                )
+                return
+            self._folder_edit.setText(str(root))
+        else:
+            raw = self._folder_edit.text().strip()
+            if not raw:
+                QMessageBox.warning(self, "Folder", "Choose a folder first.")
+                return
+            root = Path(raw).expanduser().resolve()
+            if not root.is_dir():
+                QMessageBox.critical(self, "Folder", f"Not a directory: {root}")
+                return
+
+        mirror_out: Path | None = None
+        if self._mirror_chk.isChecked():
+            mor = self._output_mirror_edit.text().strip()
+            if not mor:
+                QMessageBox.warning(
+                    self,
+                    "Mirror output",
+                    "Choose a target folder for mirror, or disable mirroring.",
+                )
+                return
+            mirror_out = Path(mor).expanduser().resolve()
+            if mirror_out == root:
+                QMessageBox.critical(
+                    self,
+                    "Mirror output",
+                    "Target folder for mirror must differ from the source folder.",
+                )
+                return
+            mirror_out.mkdir(parents=True, exist_ok=True)
+
+        if is_photos_library_bundle(root) and mirror_out is None:
+            QMessageBox.critical(self, "Apple Photos library", PHOTOS_LIBRARY_MIRROR_HELP)
             return
 
         jobs = scan_jobs(
             root,
             self._recursive_chk.isChecked(),
             force_all=self._force_all_chk.isChecked(),
+            mirror_output_root=mirror_out,
         )
         if not jobs:
             QMessageBox.information(self, "Scan", "No images need processing (PLY already fresh).")
@@ -236,18 +365,69 @@ class SharpBatchQtWindow(QMainWindow):
         if not self._limit_options_valid():
             self._watch_chk.setChecked(False)
             return
-        raw = self._folder_edit.text().strip()
-        if not raw:
-            QMessageBox.warning(self, "Watch", "Choose a folder first.")
+        if self._apple_photos_bundle_mode():
+            root = default_macos_photos_library_path().expanduser().resolve()
+            if not root.is_dir():
+                QMessageBox.critical(
+                    self,
+                    "Apple Photos library",
+                    f"Photos Library.photoslibrary not found:\n{root}",
+                )
+                self._watch_chk.setChecked(False)
+                return
+            self._folder_edit.setText(str(root))
+        else:
+            raw = self._folder_edit.text().strip()
+            if not raw:
+                QMessageBox.warning(self, "Watch", "Choose a folder first.")
+                self._watch_chk.setChecked(False)
+                return
+            root = Path(raw).expanduser().resolve()
+            if not root.is_dir():
+                QMessageBox.critical(self, "Watch", f"Not a directory: {root}")
+                self._watch_chk.setChecked(False)
+                return
+        if self._mirror_chk.isChecked():
+            mor = self._output_mirror_edit.text().strip()
+            if not mor:
+                QMessageBox.warning(
+                    self,
+                    "Watch",
+                    "Choose a target folder for mirror, or disable mirroring.",
+                )
+                self._watch_chk.setChecked(False)
+                return
+            if Path(mor).expanduser().resolve() == root:
+                QMessageBox.critical(
+                    self,
+                    "Watch",
+                    "Target folder for mirror must differ from the watched folder.",
+                )
+                self._watch_chk.setChecked(False)
+                return
+
+        mirror_out_watch: Path | None = None
+        if self._mirror_chk.isChecked():
+            mor_w = self._output_mirror_edit.text().strip()
+            if mor_w:
+                mirror_out_watch = Path(mor_w).expanduser().resolve()
+        if is_photos_library_bundle(root) and mirror_out_watch is None:
+            QMessageBox.critical(self, "Watch", PHOTOS_LIBRARY_MIRROR_HELP)
             self._watch_chk.setChecked(False)
             return
-        root = Path(raw).expanduser()
-        if not root.is_dir():
-            QMessageBox.critical(self, "Watch", f"Not a directory: {root}")
-            self._watch_chk.setChecked(False)
-            return
+
         if self._watch is not None:
             return
+
+        if is_photos_library_bundle(root):
+            QMessageBox.information(
+                self,
+                "Watch",
+                "Watching Photos Library.photoslibrary can fire often while the Photos "
+                "app updates its database. Exporting to a normal folder is gentler if "
+                "you hit issues.",
+            )
+
         self._snapshot_opts()
 
         def enqueue(p: Path) -> None:
@@ -285,11 +465,29 @@ class SharpBatchQtWindow(QMainWindow):
                 lim = self._snap_lim
                 max_s = self._snap_max
                 skip = self._snap_skip
-            if skip and not needs_ply_refresh(item):
+                m_out = self._snap_mirror_output
+                i_root = self._snap_input_root
+            try:
+                ply_target = output_ply_path_for_job(
+                    item,
+                    mirror_output_root=m_out,
+                    mirror_input_root=i_root,
+                )
+            except ValueError as e:
+                self._bridge.job_finished.emit(
+                    PlySidecarResult(
+                        ok=False,
+                        image_path=item,
+                        ply_path=sidecar_ply_path(item),
+                        message=str(e),
+                    )
+                )
+                continue
+            if skip and not needs_ply_refresh(item, ply_target):
                 r = PlySidecarResult(
                     ok=True,
                     image_path=item,
-                    ply_path=sidecar_ply_path(item),
+                    ply_path=ply_target,
                     message="Skipped (PLY up to date)",
                     skipped=True,
                 )
@@ -298,6 +496,7 @@ class SharpBatchQtWindow(QMainWindow):
                     item,
                     limit_splats=lim,
                     max_splats=max_s if lim else None,
+                    ply_output_path=ply_target,
                 )
             self._bridge.job_finished.emit(r)
 

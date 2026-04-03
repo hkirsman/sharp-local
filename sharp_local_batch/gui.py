@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -10,8 +11,12 @@ from tkinter import filedialog, messagebox, ttk
 
 from sharp_local_batch.batch_runner import WatchController, scan_jobs
 from sharp_local_batch.core import (
+    PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
+    default_macos_photos_library_path,
+    is_photos_library_bundle,
     needs_ply_refresh,
+    output_ply_path_for_job,
     process_image_to_sidecar_ply,
     sidecar_ply_path,
 )
@@ -30,6 +35,9 @@ class SharpBatchGui:
         self._max_splats_var = tk.StringVar(value="500000")
         self._skip_up_to_date_var = tk.BooleanVar(value=True)
         self._watch_var = tk.BooleanVar(value=False)
+        self._mirror_var = tk.BooleanVar(value=False)
+        self._output_mirror_var = tk.StringVar(value="")
+        self._photos_lib_var = tk.BooleanVar(value=False)
 
         self._job_q: queue.Queue[Path] = queue.Queue()
         self._quit_app = threading.Event()
@@ -37,6 +45,8 @@ class SharpBatchGui:
         self._snap_lim = False
         self._snap_max: int | None = None
         self._snap_skip = True
+        self._snap_mirror_output: Path | None = None
+        self._snap_input_root: Path | None = None
         self._scan_running = False
         self._batch_total = 0
         self._batch_done = 0
@@ -62,6 +72,54 @@ class SharpBatchGui:
             side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 4)
         )
         ttk.Button(row1, text="Browse…", command=self._browse).pack(side=tk.LEFT)
+
+        if sys.platform == "darwin":
+            row_pl = ttk.Frame(root_f)
+            row_pl.pack(fill=tk.X, **pad)
+            ttk.Checkbutton(
+                row_pl,
+                text=(
+                    "Use Apple Photos library bundle (Photos Library.photoslibrary; "
+                    "mirror required)"
+                ),
+                variable=self._photos_lib_var,
+                command=self._on_macos_photos_library_toggle,
+            ).pack(anchor=tk.W)
+
+        row1b = ttk.Frame(root_f)
+        row1b.pack(fill=tk.X, **pad)
+        self._mirror_cb = ttk.Checkbutton(
+            row1b,
+            text="Mirror PLY output (same subfolders under target)",
+            variable=self._mirror_var,
+        )
+        self._mirror_cb.pack(anchor=tk.W)
+        ttk.Label(
+            root_f,
+            text=(
+                "Example: ~/Photos/source/folder1/example.jpg → "
+                "target_mirror/Photos/source/folder1/example.ply "
+                "(path under the mirror target repeats from your home folder)."
+            ),
+            wraplength=520,
+            foreground="#666",
+        ).pack(anchor=tk.W, padx=10, pady=(0, 2))
+
+        row1c = ttk.Frame(root_f)
+        row1c.pack(fill=tk.X, **pad)
+        ttk.Label(row1c, text="Target folder for mirror").pack(side=tk.LEFT)
+        self._output_mirror_entry = ttk.Entry(
+            row1c, textvariable=self._output_mirror_var, width=40
+        )
+        self._output_mirror_entry.pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 4)
+        )
+        self._mirror_browse_btn = ttk.Button(
+            row1c, text="Browse…", command=self._browse_mirror
+        )
+        self._mirror_browse_btn.pack(side=tk.LEFT)
+        self._mirror_var.trace_add("write", lambda *_: self._sync_mirror_widgets())
+        self._sync_mirror_widgets()
 
         row2 = ttk.Frame(root_f)
         row2.pack(fill=tk.X, **pad)
@@ -122,8 +180,9 @@ class SharpBatchGui:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         hint = (
-            "Writes <name>.ply next to each image. "
-            "Optional cap uses splat-transform (npm i -g @playcanvas/splat-transform)."
+            "PLY next to each image when mirror output is off; with mirror on, PLY goes "
+            "under the target folder for mirror. Optional cap uses splat-transform "
+            "(npm i -g @playcanvas/splat-transform)."
         )
         ttk.Label(root_f, text=hint, wraplength=500, foreground="#666").pack(
             fill=tk.X, **pad
@@ -133,10 +192,37 @@ class SharpBatchGui:
         on = self._limit_var.get()
         self._max_entry.configure(state=tk.NORMAL if on else "disabled")
 
+    def _sync_mirror_widgets(self) -> None:
+        on = self._mirror_var.get()
+        state = tk.NORMAL if on else tk.DISABLED
+        self._output_mirror_entry.configure(state=state)
+        self._mirror_browse_btn.configure(state=state)
+
     def _browse(self) -> None:
         d = filedialog.askdirectory()
         if d:
             self._folder_var.set(d)
+
+    def _browse_mirror(self) -> None:
+        d = filedialog.askdirectory()
+        if d:
+            self._output_mirror_var.set(d)
+
+    def _on_macos_photos_library_toggle(self) -> None:
+        if not self._photos_lib_var.get():
+            self._mirror_cb.state(["!disabled"])
+            return
+        lib = default_macos_photos_library_path()
+        if not lib.is_dir():
+            messagebox.showwarning(
+                "Apple Photos library",
+                f"Photos Library.photoslibrary not found:\n{lib}",
+            )
+            self._photos_lib_var.set(False)
+            return
+        self._folder_var.set(str(lib))
+        self._mirror_var.set(True)
+        self._mirror_cb.state(["disabled"])
 
     def _snapshot_opts(self) -> None:
         lim = self._limit_var.get()
@@ -144,10 +230,27 @@ class SharpBatchGui:
         if lim and mx is None:
             mx = 500_000
         skip = self._skip_up_to_date_var.get()
+        mirror = self._mirror_var.get()
+        m_out: Path | None = None
+        i_root: Path | None = None
+        if mirror:
+            mor = self._output_mirror_var.get().strip()
+            if mor:
+                m_out = Path(mor).expanduser().resolve()
+            if sys.platform == "darwin" and self._photos_lib_var.get():
+                lib = default_macos_photos_library_path().expanduser().resolve()
+                if lib.is_dir():
+                    i_root = lib
+            else:
+                fr = self._folder_var.get().strip()
+                if fr:
+                    i_root = Path(fr).expanduser().resolve()
         with self._opts_lock:
             self._snap_lim = bool(lim)
             self._snap_max = mx if lim else None
             self._snap_skip = skip
+            self._snap_mirror_output = m_out
+            self._snap_input_root = i_root
 
     def _parse_max_splats(self) -> int | None:
         if not self._limit_var.get():
@@ -176,19 +279,52 @@ class SharpBatchGui:
         ok, max_s = self._limit_options()
         if not ok:
             return
-        raw = self._folder_var.get().strip()
-        if not raw:
-            messagebox.showwarning("Folder", "Choose a folder first.")
-            return
-        root = Path(raw).expanduser()
-        if not root.is_dir():
-            messagebox.showerror("Folder", f"Not a directory: {root}")
+        if sys.platform == "darwin" and self._photos_lib_var.get():
+            root = default_macos_photos_library_path().expanduser().resolve()
+            if not root.is_dir():
+                messagebox.showerror(
+                    "Apple Photos library",
+                    f"Photos Library.photoslibrary not found:\n{root}",
+                )
+                return
+            self._folder_var.set(str(root))
+        else:
+            raw = self._folder_var.get().strip()
+            if not raw:
+                messagebox.showwarning("Folder", "Choose a folder first.")
+                return
+            root = Path(raw).expanduser().resolve()
+            if not root.is_dir():
+                messagebox.showerror("Folder", f"Not a directory: {root}")
+                return
+
+        mirror_out: Path | None = None
+        if self._mirror_var.get():
+            mor = self._output_mirror_var.get().strip()
+            if not mor:
+                messagebox.showwarning(
+                    "Mirror output",
+                    "Choose a target folder for mirror, or turn off mirroring.",
+                )
+                return
+            mirror_out = Path(mor).expanduser().resolve()
+            if mirror_out == root:
+                messagebox.showerror(
+                    "Mirror output",
+                    "Target folder for mirror must differ from the source folder.",
+                )
+                return
+            mirror_out.mkdir(parents=True, exist_ok=True)
+
+        if is_photos_library_bundle(root) and mirror_out is None:
+            messagebox.showerror("Apple Photos library", PHOTOS_LIBRARY_MIRROR_HELP)
             return
 
         jobs = scan_jobs(
             root,
             self._recursive_var.get(),
             force_all=self._force_all_var.get(),
+            mirror_output_root=mirror_out,
         )
         if not jobs:
             messagebox.showinfo("Scan", "No images need processing (PLY already fresh).")
@@ -229,19 +365,63 @@ class SharpBatchGui:
         if not ok:
             self._watch_var.set(False)
             return
-        raw = self._folder_var.get().strip()
-        if not raw:
-            messagebox.showwarning("Watch", "Choose a folder first.")
-            self._watch_var.set(False)
-            return
-        root = Path(raw).expanduser()
-        if not root.is_dir():
-            messagebox.showerror("Watch", f"Not a directory: {root}")
+        if sys.platform == "darwin" and self._photos_lib_var.get():
+            root = default_macos_photos_library_path().expanduser().resolve()
+            if not root.is_dir():
+                messagebox.showerror(
+                    "Watch",
+                    f"Photos Library.photoslibrary not found:\n{root}",
+                )
+                self._watch_var.set(False)
+                return
+            self._folder_var.set(str(root))
+        else:
+            raw = self._folder_var.get().strip()
+            if not raw:
+                messagebox.showwarning("Watch", "Choose a folder first.")
+                self._watch_var.set(False)
+                return
+            root = Path(raw).expanduser().resolve()
+            if not root.is_dir():
+                messagebox.showerror("Watch", f"Not a directory: {root}")
+                self._watch_var.set(False)
+                return
+
+        if self._mirror_var.get():
+            mor = self._output_mirror_var.get().strip()
+            if not mor:
+                messagebox.showwarning(
+                    "Watch",
+                    "Choose a target folder for mirror, or disable mirroring.",
+                )
+                self._watch_var.set(False)
+                return
+            if Path(mor).expanduser().resolve() == root:
+                messagebox.showerror(
+                    "Watch",
+                    "Target folder for mirror must differ from the watched folder.",
+                )
+                self._watch_var.set(False)
+                return
+
+        mirror_out_watch: Path | None = None
+        if self._mirror_var.get():
+            mirror_out_watch = Path(self._output_mirror_var.get().strip()).expanduser().resolve()
+        if is_photos_library_bundle(root) and mirror_out_watch is None:
+            messagebox.showerror("Watch", PHOTOS_LIBRARY_MIRROR_HELP)
             self._watch_var.set(False)
             return
 
         if self._watch is not None:
             return
+
+        if is_photos_library_bundle(root):
+            messagebox.showinfo(
+                "Watch",
+                "Watching Photos Library.photoslibrary can fire often while the Photos "
+                "app updates its database. Exporting to a normal folder is gentler if "
+                "you hit issues.",
+            )
 
         self._snapshot_opts()
 
@@ -280,12 +460,30 @@ class SharpBatchGui:
                 lim = self._snap_lim
                 max_s = self._snap_max
                 skip = self._snap_skip
+                m_out = self._snap_mirror_output
+                i_root = self._snap_input_root
 
-            if skip and not needs_ply_refresh(p):
+            try:
+                ply_target = output_ply_path_for_job(
+                    p,
+                    mirror_output_root=m_out,
+                    mirror_input_root=i_root,
+                )
+            except ValueError as e:
+                r = PlySidecarResult(
+                    ok=False,
+                    image_path=p,
+                    ply_path=sidecar_ply_path(p),
+                    message=str(e),
+                )
+                self.root.after(0, lambda res=r: self._on_job_done(res))
+                continue
+
+            if skip and not needs_ply_refresh(p, ply_target):
                 r = PlySidecarResult(
                     ok=True,
                     image_path=p,
-                    ply_path=sidecar_ply_path(p),
+                    ply_path=ply_target,
                     message="Skipped (PLY up to date)",
                     skipped=True,
                 )
@@ -294,6 +492,7 @@ class SharpBatchGui:
                     p,
                     limit_splats=lim,
                     max_splats=max_s if lim else None,
+                    ply_output_path=ply_target,
                 )
 
             self.root.after(0, lambda res=r: self._on_job_done(res))
