@@ -6,6 +6,10 @@ import argparse
 import sys
 from pathlib import Path
 
+from sharp_local_batch.logging_config import ensure_stderr_info_logging
+
+ensure_stderr_info_logging()
+
 from sharp_local_batch.batch_runner import scan_jobs
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,

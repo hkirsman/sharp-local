@@ -30,6 +30,10 @@ from typing import Any, Optional
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
+from sharp_local_batch.logging_config import ensure_stderr_info_logging
+
+ensure_stderr_info_logging()
+
 from sharp_local_batch.core import (
     ML_SHARP_SRC,
     PREDICT_LOCK,

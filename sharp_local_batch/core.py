@@ -25,12 +25,7 @@ ML_SHARP_SRC = REPO_ROOT / "ml-sharp" / "src"
 if ML_SHARP_SRC.is_dir():
     sys.path.insert(0, str(ML_SHARP_SRC))
 
-LOGGER = logging.getLogger("sharp_local_batch.core")
-if not LOGGER.handlers:
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-    LOGGER.addHandler(_h)
-    LOGGER.setLevel(logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 if not ML_SHARP_SRC.is_dir():
     LOGGER.warning(
