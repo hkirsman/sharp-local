@@ -30,6 +30,8 @@ try:
 except Exception:
     pass
 
+# Omit sharp_local_batch.gui: frozen bundle targets PySide6 only; Tk needs _tkinter
+# and breaks analysis/build on Homebrew Pythons without Tcl/Tk.
 hiddenimports = (
     collect_submodules("sharp")
     + [
@@ -37,7 +39,7 @@ hiddenimports = (
         "sharp_local_batch.core",
         "sharp_local_batch.batch_runner",
         "sharp_local_batch.gui_qt",
-        "sharp_local_batch.gui",
+        "sharp_local_batch.logging_config",
         "watchdog",
         "watchdog.observers",
         "watchdog.events",
