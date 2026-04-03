@@ -139,6 +139,15 @@ Fix (pick one):
 """
 
 
+def _is_expected_missing_qt(exc: ImportError) -> bool:
+    """True only when PySide6 (or a PySide6.* submodule) is absent — not other import bugs."""
+    if isinstance(exc, ModuleNotFoundError):
+        name = (exc.name or "").lower()
+        if name == "pyside6" or name.startswith("pyside6."):
+            return True
+    return "pyside6" in str(exc).lower()
+
+
 def main() -> None:
     if len(sys.argv) >= 2 and sys.argv[1] == "--cli":
         sys.argv.pop(1)
@@ -148,8 +157,9 @@ def main() -> None:
 
         gui_main()
         return
-    except ImportError:
-        pass
+    except ImportError as e:
+        if not _is_expected_missing_qt(e):
+            raise
     try:
         from sharp_local_batch.gui import main as gui_main
 
