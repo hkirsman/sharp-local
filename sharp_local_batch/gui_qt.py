@@ -85,11 +85,18 @@ class SharpBatchQtWindow(QMainWindow):
         self._photos_lib_chk: QCheckBox | None = None
         if sys.platform == "darwin":
             self._photos_lib_chk = QCheckBox(
-                "Use Apple Photos library bundle (Photos Library.photoslibrary; "
-                "mirror required)"
+                "Use system Photos library as source folder "
+                "(Photos Library.photoslibrary; mirror required)"
             )
             self._photos_lib_chk.toggled.connect(self._on_photos_lib_toggled)
             layout.addWidget(self._photos_lib_chk)
+            _photos_hint = QLabel(
+                "Fills the Folder field above — one source only, not an extra path. "
+                "Uncheck to browse your own folder."
+            )
+            _photos_hint.setWordWrap(True)
+            _photos_hint.setStyleSheet("color: #666; margin-left: 22px;")
+            layout.addWidget(_photos_hint)
 
         row1b = QHBoxLayout()
         self._mirror_chk = QCheckBox("Mirror PLY output (same subfolders under target)")

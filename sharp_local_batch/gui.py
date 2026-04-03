@@ -80,12 +80,21 @@ class SharpBatchGui:
             ttk.Checkbutton(
                 row_pl,
                 text=(
-                    "Use Apple Photos library bundle (Photos Library.photoslibrary; "
-                    "mirror required)"
+                    "Use system Photos library as source folder "
+                    "(Photos Library.photoslibrary; mirror required)"
                 ),
                 variable=self._photos_lib_var,
                 command=self._on_macos_photos_library_toggle,
             ).pack(anchor=tk.W)
+            ttk.Label(
+                row_pl,
+                text=(
+                    "Fills the Folder field above — one source only, not an extra path. "
+                    "Uncheck to browse your own folder."
+                ),
+                wraplength=520,
+                foreground="#666",
+            ).pack(anchor=tk.W, padx=(22, 0), pady=(0, 2))
 
         row1b = ttk.Frame(root_f)
         row1b.pack(fill=tk.X, **pad)
