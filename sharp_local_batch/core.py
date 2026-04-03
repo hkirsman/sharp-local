@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import shutil
 import subprocess
@@ -149,11 +150,12 @@ def decimate_ply_splat_transform(
         return False
 
 
-def supported_image_suffixes() -> set[str]:
+@functools.lru_cache(maxsize=1)
+def supported_image_suffixes() -> frozenset[str]:
     ensure_sharp_imports()
     from sharp.utils import io as sharp_io
 
-    return {ext.lower() for ext in sharp_io.get_supported_image_extensions()}
+    return frozenset(ext.lower() for ext in sharp_io.get_supported_image_extensions())
 
 
 def is_supported_image(path: Path) -> bool:
