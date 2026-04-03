@@ -440,6 +440,8 @@ class SharpBatchQtWindow(QMainWindow):
         self._snapshot_opts()
 
         def enqueue(p: Path) -> None:
+            if self._quit_app.is_set():
+                return
             self._bridge.watch_enqueue.emit(p.resolve())
 
         self._watch = WatchController(
@@ -459,6 +461,8 @@ class SharpBatchQtWindow(QMainWindow):
 
     @Slot(object)
     def _on_watch_enqueue(self, p: object) -> None:
+        if self._quit_app.is_set():
+            return
         if not isinstance(p, Path):
             p = Path(p)
         self._snapshot_opts()
@@ -483,14 +487,15 @@ class SharpBatchQtWindow(QMainWindow):
                     mirror_input_root=i_root,
                 )
             except ValueError as e:
-                self._bridge.job_finished.emit(
-                    PlySidecarResult(
-                        ok=False,
-                        image_path=item,
-                        ply_path=sidecar_ply_path(item),
-                        message=str(e),
-                    )
+                r = PlySidecarResult(
+                    ok=False,
+                    image_path=item,
+                    ply_path=sidecar_ply_path(item),
+                    message=str(e),
                 )
+                if self._quit_app.is_set():
+                    break
+                self._bridge.job_finished.emit(r)
                 continue
             if skip and not needs_ply_refresh(item, ply_target):
                 r = PlySidecarResult(
@@ -507,10 +512,14 @@ class SharpBatchQtWindow(QMainWindow):
                     max_splats=max_s if lim else None,
                     ply_output_path=ply_target,
                 )
+            if self._quit_app.is_set():
+                break
             self._bridge.job_finished.emit(r)
 
     @Slot(object)
     def _on_job_done(self, r: object) -> None:
+        if self._quit_app.is_set():
+            return
         if not isinstance(r, PlySidecarResult):
             return
         if r.skipped:
