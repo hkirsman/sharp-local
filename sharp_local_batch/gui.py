@@ -6,6 +6,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -442,7 +443,7 @@ class SharpBatchGui:
                 self._snapshot_opts()
                 self._job_q.put(path)
 
-            self.root.after(0, push)
+            self._safe_after(0, push)
 
         self._watch = WatchController(
             root,
@@ -486,7 +487,7 @@ class SharpBatchGui:
                     ply_path=sidecar_ply_path(p),
                     message=str(e),
                 )
-                self.root.after(0, lambda res=r: self._on_job_done(res))
+                self._safe_after(0, self._on_job_done, r)
                 continue
 
             if skip and not needs_ply_refresh(p, ply_target):
@@ -505,7 +506,7 @@ class SharpBatchGui:
                     ply_output_path=ply_target,
                 )
 
-            self.root.after(0, lambda res=r: self._on_job_done(res))
+            self._safe_after(0, self._on_job_done, r)
 
     def _on_job_done(self, r: PlySidecarResult) -> None:
         if r.skipped:
@@ -534,6 +535,13 @@ class SharpBatchGui:
     def _log_line(self, text: str) -> None:
         self._log.insert(tk.END, text + "\n")
         self._log.see(tk.END)
+
+    def _safe_after(self, delay_ms: int, func: Callable[..., object], *args: object) -> None:
+        """Schedule on the Tk main loop; no-op if the root is already destroyed."""
+        try:
+            self.root.after(delay_ms, func, *args)
+        except tk.TclError:
+            pass
 
     def _on_close(self) -> None:
         self._stop_watch()
