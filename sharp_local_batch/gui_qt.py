@@ -120,6 +120,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._recursive_chk.setChecked(True)
         row2.addWidget(self._recursive_chk)
         self._force_all_chk = QCheckBox("Reprocess all (ignore PLY freshness)")
+        self._force_all_chk.toggled.connect(self._sync_force_skip_widgets)
         row2.addWidget(self._force_all_chk)
         layout.addLayout(row2)
 
@@ -137,6 +138,7 @@ class SharpBatchQtWindow(QMainWindow):
         layout.addLayout(row3)
         self._limit_chk.toggled.connect(self._sync_limit_widgets)
         self._sync_limit_widgets()
+        self._sync_force_skip_widgets(False)
 
         row4 = QHBoxLayout()
         scan_btn = QPushButton("Scan & queue jobs")
@@ -179,6 +181,13 @@ class SharpBatchQtWindow(QMainWindow):
 
     def _sync_limit_widgets(self) -> None:
         self._max_edit.setEnabled(self._limit_chk.isChecked())
+
+    @Slot(bool)
+    def _sync_force_skip_widgets(self, _checked: bool) -> None:
+        on = self._force_all_chk.isChecked()
+        if on:
+            self._skip_chk.setChecked(False)
+        self._skip_chk.setEnabled(not on)
 
     def _sync_mirror_widgets(self, _checked: bool) -> None:
         on = self._mirror_chk.isChecked()
@@ -225,7 +234,7 @@ class SharpBatchQtWindow(QMainWindow):
         mx = self._parse_max_splats() if lim else None
         if lim and mx is None:
             mx = 500_000
-        skip = self._skip_chk.isChecked()
+        skip = self._skip_chk.isChecked() and not self._force_all_chk.isChecked()
         mirror = self._mirror_chk.isChecked()
         m_out: Path | None = None
         i_root: Path | None = None

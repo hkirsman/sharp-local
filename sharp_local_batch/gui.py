@@ -130,6 +130,7 @@ class SharpBatchGui:
             row2,
             text="Reprocess all (ignore PLY freshness)",
             variable=self._force_all_var,
+            command=self._sync_force_skip_widgets,
         ).pack(side=tk.LEFT, padx=(16, 0))
 
         row3 = ttk.Frame(root_f)
@@ -140,14 +141,16 @@ class SharpBatchGui:
         ttk.Label(row3, text="Max splats").pack(side=tk.LEFT, padx=(8, 4))
         self._max_entry = ttk.Entry(row3, textvariable=self._max_splats_var, width=12)
         self._max_entry.pack(side=tk.LEFT)
-        ttk.Checkbutton(
+        self._skip_cb = ttk.Checkbutton(
             row3,
             text="Skip up-to-date PLY",
             variable=self._skip_up_to_date_var,
-        ).pack(side=tk.LEFT, padx=(16, 0))
+        )
+        self._skip_cb.pack(side=tk.LEFT, padx=(16, 0))
 
         self._limit_var.trace_add("write", lambda *_: self._sync_limit_widgets())
         self._sync_limit_widgets()
+        self._sync_force_skip_widgets()
 
         row4 = ttk.Frame(root_f)
         row4.pack(fill=tk.X, **pad)
@@ -192,6 +195,13 @@ class SharpBatchGui:
         on = self._limit_var.get()
         self._max_entry.configure(state=tk.NORMAL if on else "disabled")
 
+    def _sync_force_skip_widgets(self) -> None:
+        if self._force_all_var.get():
+            self._skip_up_to_date_var.set(False)
+            self._skip_cb.state(["disabled"])
+        else:
+            self._skip_cb.state(["!disabled"])
+
     def _sync_mirror_widgets(self) -> None:
         on = self._mirror_var.get()
         state = tk.NORMAL if on else tk.DISABLED
@@ -229,7 +239,7 @@ class SharpBatchGui:
         mx = self._parse_max_splats() if lim else None
         if lim and mx is None:
             mx = 500_000
-        skip = self._skip_up_to_date_var.get()
+        skip = self._skip_up_to_date_var.get() and not self._force_all_var.get()
         mirror = self._mirror_var.get()
         m_out: Path | None = None
         i_root: Path | None = None
