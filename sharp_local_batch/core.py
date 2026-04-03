@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -166,9 +167,30 @@ def list_image_paths(root: Path, recursive: bool) -> list[Path]:
     allowed = supported_image_suffixes()
     out: list[Path] = []
     if recursive:
-        for p in root.rglob("*"):
-            if p.is_file() and p.suffix.lower() in allowed and not _path_is_skipped(p):
-                out.append(p)
+        try:
+            root_r = root.resolve()
+        except OSError:
+            root_r = root
+        if not root_r.is_dir():
+            return []
+        for dirpath, dirnames, filenames in os.walk(
+            root_r, topdown=True, followlinks=False
+        ):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            base = Path(dirpath)
+            for name in filenames:
+                if name.startswith("."):
+                    continue
+                p = base / name
+                try:
+                    if (
+                        p.is_file()
+                        and p.suffix.lower() in allowed
+                        and not _path_is_skipped(p)
+                    ):
+                        out.append(p)
+                except OSError:
+                    continue
     else:
         for p in root.iterdir():
             if p.is_file() and p.suffix.lower() in allowed and not _path_is_skipped(p):
