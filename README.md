@@ -72,6 +72,7 @@ The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hu
 **GUI:** uses **PySide6-Essentials** (Qt widgets only; smaller than the full `PySide6` metapackage that also downloads Addons). Falls back to **Tk** if it is missing. **CLI** needs no GUI toolkit.
 
 ```bash
+source .venv/bin/activate
 python -m sharp_local_batch
 python -m sharp_local_batch --cli --folder /path/to/photos --recursive
 # PLY under another tree (under ~: path from home, e.g. Pictures/…; else relative to --folder):
