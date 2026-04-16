@@ -82,14 +82,20 @@ def _cli_main() -> int:
         print("Use: --output-root /path/outside/library", file=sys.stderr)
         return 1
 
-    jobs = scan_jobs(
+    jobs, total_found = scan_jobs(
         root,
         args.recursive,
         force_all=args.force_all,
         mirror_output_root=mirror_out,
     )
     if not jobs:
-        print("No images need processing.")
+        if total_found == 0:
+            print(
+                "No supported images found under the source folder.",
+                file=sys.stderr,
+            )
+        else:
+            print("No images need processing (PLY already up to date).")
         return 0
 
     max_s = args.max_splats if args.limit_splats else None

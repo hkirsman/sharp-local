@@ -29,21 +29,30 @@ def scan_jobs(
     *,
     force_all: bool,
     mirror_output_root: Optional[Path] = None,
-) -> list[Path]:
-    """Images under ``root`` that need work (or all images if ``force_all``)."""
+) -> tuple[list[Path], int]:
+    """Images under ``root`` that need work (or all images if ``force_all``).
+
+    Returns ``(jobs, total_supported_images)`` where *total_supported_images* is the
+    count of supported files found before the PLY-freshness filter — useful to tell
+    “nothing on disk” from “everything already processed”.
+    """
     scan_root = effective_batch_scan_root(root)
     paths = list_image_paths(scan_root, recursive)
+    total = len(paths)
     if force_all:
-        return paths
+        return paths, total
     root_r = root.resolve()
     if mirror_output_root is None:
-        return [p for p in paths if needs_ply_refresh(p)]
+        return [p for p in paths if needs_ply_refresh(p)], total
     out_r = mirror_output_root.resolve()
-    return [
-        p
-        for p in paths
-        if needs_ply_refresh(p, mirrored_ply_path(p, root_r, out_r))
-    ]
+    return (
+        [
+            p
+            for p in paths
+            if needs_ply_refresh(p, mirrored_ply_path(p, root_r, out_r))
+        ],
+        total,
+    )
 
 
 class DebouncedScheduler:

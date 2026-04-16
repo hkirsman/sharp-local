@@ -336,14 +336,28 @@ class SharpBatchQtWindow(QMainWindow):
             QMessageBox.critical(self, "Apple Photos library", PHOTOS_LIBRARY_MIRROR_HELP)
             return
 
-        jobs = scan_jobs(
+        jobs, total_found = scan_jobs(
             root,
             self._recursive_chk.isChecked(),
             force_all=self._force_all_chk.isChecked(),
             mirror_output_root=mirror_out,
         )
         if not jobs:
-            QMessageBox.information(self, "Scan", "No images need processing (PLY already fresh).")
+            if total_found == 0:
+                QMessageBox.information(
+                    self,
+                    "Scan",
+                    "No supported images were found in the scan folder.\n\n"
+                    "If you use iCloud Photos, originals may not be on disk yet — "
+                    "open a photo in Photos to download it, or enable "
+                    "Photos → Settings → iCloud → Download Originals to this Mac.",
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Scan",
+                    "No images need processing (PLY already up to date).",
+                )
             return
 
         self._snapshot_opts()

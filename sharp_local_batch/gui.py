@@ -340,14 +340,26 @@ class SharpBatchGui:
             messagebox.showerror("Apple Photos library", PHOTOS_LIBRARY_MIRROR_HELP)
             return
 
-        jobs = scan_jobs(
+        jobs, total_found = scan_jobs(
             root,
             self._recursive_var.get(),
             force_all=self._force_all_var.get(),
             mirror_output_root=mirror_out,
         )
         if not jobs:
-            messagebox.showinfo("Scan", "No images need processing (PLY already fresh).")
+            if total_found == 0:
+                messagebox.showinfo(
+                    "Scan",
+                    "No supported images were found in the scan folder.\n\n"
+                    "If you use iCloud Photos, originals may not be on disk yet — "
+                    "open a photo in Photos to download it, or enable "
+                    "Photos → Settings → iCloud → Download Originals to this Mac.",
+                )
+            else:
+                messagebox.showinfo(
+                    "Scan",
+                    "No images need processing (PLY already up to date).",
+                )
             return
 
         self._snapshot_opts()

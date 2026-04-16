@@ -173,8 +173,10 @@ def list_image_paths(root: Path, recursive: bool) -> list[Path]:
             root_r = root
         if not root_r.is_dir():
             return []
+        # followlinks=True matches pathlib.rglob: descend symlinked dirs (Photos may use
+        # them). Rare symlink cycles are acceptable for typical library trees.
         for dirpath, dirnames, filenames in os.walk(
-            root_r, topdown=True, followlinks=False
+            root_r, topdown=True, followlinks=True
         ):
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
             base = Path(dirpath)
