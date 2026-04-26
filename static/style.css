@@ -184,6 +184,15 @@ body {
   color: var(--muted);
 }
 
+.spz-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.spz-link:hover {
+  text-decoration: underline;
+}
+
 .btn {
   border: none;
   border-radius: var(--radius-sm);

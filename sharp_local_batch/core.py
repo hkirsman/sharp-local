@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import io
 import logging
 import os
 import shutil
@@ -158,6 +159,39 @@ def decimate_ply_splat_transform(
         return False
 
 
+def export_ply_to_spz(ply_path: Path, spz_path: Path) -> bool:
+    """Write Niantic .spz from a SHARP splat PLY (vertex-only PLY for GaussForge).
+
+    Returns ``True`` on success.  Logs a warning and returns ``False`` when
+    ``gaussforge`` / ``plyfile`` is not importable or conversion fails.
+    """
+    try:
+        import gaussforge
+        from plyfile import PlyData, PlyElement
+    except ImportError:
+        LOGGER.warning(
+            "gaussforge or plyfile not importable; run: pip install gaussforge plyfile"
+        )
+        return False
+    try:
+        plydata = PlyData.read(str(ply_path))
+        vertex_el = plydata["vertex"]
+        minimal = PlyData([PlyElement.describe(vertex_el.data, "vertex")])
+        buf = io.BytesIO()
+        minimal.write(buf)
+        result = gaussforge.GaussForge().convert(buf.getvalue(), "ply", "spz")
+        if "error" in result:
+            LOGGER.warning("SPZ conversion failed: %s", result.get("error"))
+            return False
+        raw = result["data"]
+        spz_path.parent.mkdir(parents=True, exist_ok=True)
+        spz_path.write_bytes(raw if isinstance(raw, (bytes, bytearray)) else bytes(raw))
+        return True
+    except Exception:
+        LOGGER.exception("SPZ export failed for %s", ply_path)
+        return False
+
+
 @functools.lru_cache(maxsize=1)
 def supported_image_suffixes() -> frozenset[str]:
     ensure_sharp_imports()
@@ -306,14 +340,24 @@ def output_ply_path_for_job(
     return mirrored_ply_path(img, mirror_input_root, mirror_output_root)
 
 
-def needs_ply_refresh(image_path: Path, ply_path: Optional[Path] = None) -> bool:
+def needs_ply_refresh(
+    image_path: Path,
+    ply_path: Optional[Path] = None,
+    *,
+    require_spz: bool = False,
+) -> bool:
+    """True if the PLY (and optionally the .spz sidecar) needs (re)generating."""
     ply = sidecar_ply_path(image_path) if ply_path is None else ply_path
     if not ply.is_file():
         return True
     try:
-        return image_path.stat().st_mtime > ply.stat().st_mtime
+        if image_path.stat().st_mtime > ply.stat().st_mtime:
+            return True
     except OSError:
         return True
+    if require_spz and not ply.with_suffix(".spz").is_file():
+        return True
+    return False
 
 
 @dataclass
@@ -327,6 +371,8 @@ class PlySidecarResult:
     limit_applied: bool = False
     decimate_error: Optional[str] = None
     skipped: bool = False
+    spz_path: Optional[Path] = None
+    spz_error: Optional[str] = None
 
 
 def process_image_to_sidecar_ply(
@@ -335,8 +381,9 @@ def process_image_to_sidecar_ply(
     limit_splats: bool = False,
     max_splats: Optional[int] = None,
     ply_output_path: Optional[Path] = None,
+    export_spz: bool = False,
 ) -> PlySidecarResult:
-    """Run SHARP on ``image_path`` and write PLY beside it or at ``ply_output_path``; optional decimate."""
+    """Run SHARP on ``image_path`` and write PLY beside it or at ``ply_output_path``; optional decimate + SPZ."""
     image_path = image_path.resolve()
     ply_path = sidecar_ply_path(image_path) if ply_output_path is None else ply_output_path.resolve()
 
@@ -401,11 +448,24 @@ def process_image_to_sidecar_ply(
                 "install: npm install -g @playcanvas/splat-transform"
             )
 
+    spz_path: Optional[Path] = None
+    spz_error: Optional[str] = None
+    if export_spz:
+        spz_target = ply_path.with_suffix(".spz")
+        if export_ply_to_spz(ply_path, spz_target):
+            spz_path = spz_target
+        else:
+            spz_error = "SPZ export failed (gaussforge missing or conversion error)"
+
     msg = f"OK — {splat_count:,} splats"
     if limit_applied and splat_count_full > splat_count:
         msg += f" (from {splat_count_full:,})"
     if decimate_error:
         msg += f"; {decimate_error}"
+    if spz_path:
+        msg += "; SPZ exported"
+    elif spz_error:
+        msg += f"; {spz_error}"
 
     return PlySidecarResult(
         ok=True,
@@ -416,4 +476,80 @@ def process_image_to_sidecar_ply(
         splat_count_full=splat_count_full,
         limit_applied=limit_applied,
         decimate_error=decimate_error,
+        spz_path=spz_path,
+        spz_error=spz_error,
+    )
+
+
+def update_ply_sidecar(
+    image_path: Path,
+    *,
+    skip_up_to_date: bool,
+    limit_splats: bool = False,
+    max_splats: Optional[int] = None,
+    ply_output_path: Optional[Path] = None,
+    export_spz: bool = False,
+) -> PlySidecarResult:
+    """Skip, top up missing SPZ, or run the full pipeline.
+
+    When ``skip_up_to_date`` is set and the PLY is already current, this
+    avoids re-running inference: if ``export_spz`` is on but the ``.spz``
+    sidecar is missing, only the SPZ conversion runs against the existing
+    PLY; otherwise the file is reported as skipped.  In all other cases the
+    full :func:`process_image_to_sidecar_ply` pipeline runs.
+    """
+    image_path = image_path.resolve()
+    ply_path = (
+        sidecar_ply_path(image_path)
+        if ply_output_path is None
+        else ply_output_path.resolve()
+    )
+
+    if skip_up_to_date and ply_path.is_file():
+        try:
+            ply_stale = image_path.stat().st_mtime > ply_path.stat().st_mtime
+        except OSError:
+            ply_stale = True
+        if not ply_stale:
+            spz_target = ply_path.with_suffix(".spz")
+            if export_spz and not spz_target.is_file():
+                if export_ply_to_spz(ply_path, spz_target):
+                    try:
+                        count = count_ply_vertices(ply_path)
+                    except (OSError, ValueError):
+                        count = None
+                    msg = "SPZ exported (PLY current)"
+                    if count is not None:
+                        msg += f" — {count:,} splats"
+                    return PlySidecarResult(
+                        ok=True,
+                        image_path=image_path,
+                        ply_path=ply_path,
+                        message=msg,
+                        splat_count=count,
+                        splat_count_full=count,
+                        spz_path=spz_target,
+                    )
+                err = "SPZ export failed (gaussforge missing or conversion error)"
+                return PlySidecarResult(
+                    ok=False,
+                    image_path=image_path,
+                    ply_path=ply_path,
+                    message=err,
+                    spz_error=err,
+                )
+            return PlySidecarResult(
+                ok=True,
+                image_path=image_path,
+                ply_path=ply_path,
+                message="Skipped (PLY up to date)",
+                skipped=True,
+            )
+
+    return process_image_to_sidecar_ply(
+        image_path,
+        limit_splats=limit_splats,
+        max_splats=max_splats,
+        ply_output_path=ply_path,
+        export_spz=export_spz,
     )

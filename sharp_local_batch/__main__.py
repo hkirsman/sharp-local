@@ -15,7 +15,7 @@ from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     is_photos_library_bundle,
     output_ply_path_for_job,
-    process_image_to_sidecar_ply,
+    update_ply_sidecar,
 )
 
 
@@ -54,6 +54,12 @@ def _cli_main() -> int:
         help="Target splat count when --limit-splats (default 500000)",
     )
     p.add_argument(
+        "--no-export-spz",
+        action="store_false",
+        dest="export_spz",
+        help="Skip Niantic .spz export (SPZ is exported by default alongside PLY)",
+    )
+    p.add_argument(
         "--output-root",
         type=Path,
         default=None,
@@ -87,6 +93,7 @@ def _cli_main() -> int:
         args.recursive,
         force_all=args.force_all,
         mirror_output_root=mirror_out,
+        export_spz=args.export_spz,
     )
     if not jobs:
         if total_found == 0:
@@ -117,11 +124,13 @@ def _cli_main() -> int:
             print(f"    err: {e}", flush=True)
             exit_code = 1
             continue
-        r = process_image_to_sidecar_ply(
+        r = update_ply_sidecar(
             path,
+            skip_up_to_date=not args.force_all,
             limit_splats=args.limit_splats,
             max_splats=max_s,
             ply_output_path=ply_target,
+            export_spz=args.export_spz,
         )
         tag = "ok" if r.ok else "err"
         if r.skipped:

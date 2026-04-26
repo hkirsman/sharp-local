@@ -16,10 +16,9 @@ from sharp_local_batch.core import (
     PlySidecarResult,
     default_macos_photos_library_path,
     is_photos_library_bundle,
-    needs_ply_refresh,
     output_ply_path_for_job,
-    process_image_to_sidecar_ply,
     sidecar_ply_path,
+    update_ply_sidecar,
 )
 
 
@@ -35,6 +34,7 @@ class SharpBatchGui:
         self._limit_var = tk.BooleanVar(value=False)
         self._max_splats_var = tk.StringVar(value="500000")
         self._skip_up_to_date_var = tk.BooleanVar(value=True)
+        self._spz_var = tk.BooleanVar(value=True)
         self._watch_var = tk.BooleanVar(value=False)
         self._mirror_var = tk.BooleanVar(value=False)
         self._output_mirror_var = tk.StringVar(value="")
@@ -46,6 +46,7 @@ class SharpBatchGui:
         self._snap_lim = False
         self._snap_max: int | None = None
         self._snap_skip = True
+        self._snap_spz = True
         self._snap_mirror_output: Path | None = None
         self._snap_input_root: Path | None = None
         self._scan_running = False
@@ -157,6 +158,9 @@ class SharpBatchGui:
             variable=self._skip_up_to_date_var,
         )
         self._skip_cb.pack(side=tk.LEFT, padx=(16, 0))
+        ttk.Checkbutton(row3, text="Export SPZ", variable=self._spz_var).pack(
+            side=tk.LEFT, padx=(16, 0)
+        )
 
         self._limit_var.trace_add("write", lambda *_: self._sync_limit_widgets())
         self._sync_limit_widgets()
@@ -265,10 +269,12 @@ class SharpBatchGui:
                 fr = self._folder_var.get().strip()
                 if fr:
                     i_root = Path(fr).expanduser().resolve()
+        spz = self._spz_var.get()
         with self._opts_lock:
             self._snap_lim = bool(lim)
             self._snap_max = mx if lim else None
             self._snap_skip = skip
+            self._snap_spz = spz
             self._snap_mirror_output = m_out
             self._snap_input_root = i_root
 
@@ -345,6 +351,7 @@ class SharpBatchGui:
             self._recursive_var.get(),
             force_all=self._force_all_var.get(),
             mirror_output_root=mirror_out,
+            export_spz=self._spz_var.get(),
         )
         if not jobs:
             if total_found == 0:
@@ -492,6 +499,7 @@ class SharpBatchGui:
                 lim = self._snap_lim
                 max_s = self._snap_max
                 skip = self._snap_skip
+                spz = self._snap_spz
                 m_out = self._snap_mirror_output
                 i_root = self._snap_input_root
 
@@ -511,21 +519,14 @@ class SharpBatchGui:
                 self._safe_after(0, self._on_job_done, r)
                 continue
 
-            if skip and not needs_ply_refresh(p, ply_target):
-                r = PlySidecarResult(
-                    ok=True,
-                    image_path=p,
-                    ply_path=ply_target,
-                    message="Skipped (PLY up to date)",
-                    skipped=True,
-                )
-            else:
-                r = process_image_to_sidecar_ply(
-                    p,
-                    limit_splats=lim,
-                    max_splats=max_s if lim else None,
-                    ply_output_path=ply_target,
-                )
+            r = update_ply_sidecar(
+                p,
+                skip_up_to_date=skip,
+                limit_splats=lim,
+                max_splats=max_s if lim else None,
+                ply_output_path=ply_target,
+                export_spz=spz,
+            )
 
             self._safe_after(0, self._on_job_done, r)
 

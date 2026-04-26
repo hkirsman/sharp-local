@@ -32,10 +32,9 @@ from sharp_local_batch.core import (
     PlySidecarResult,
     default_macos_photos_library_path,
     is_photos_library_bundle,
-    needs_ply_refresh,
     output_ply_path_for_job,
-    process_image_to_sidecar_ply,
     sidecar_ply_path,
+    update_ply_sidecar,
 )
 
 
@@ -58,6 +57,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._snap_lim = False
         self._snap_max: int | None = None
         self._snap_skip = True
+        self._snap_spz = True
         self._batch_total = 0
         self._batch_done = 0
         self._watch: WatchController | None = None
@@ -141,6 +141,9 @@ class SharpBatchQtWindow(QMainWindow):
         self._skip_chk = QCheckBox("Skip up-to-date PLY")
         self._skip_chk.setChecked(True)
         row3.addWidget(self._skip_chk)
+        self._spz_chk = QCheckBox("Export SPZ")
+        self._spz_chk.setChecked(True)
+        row3.addWidget(self._spz_chk)
         row3.addStretch()
         layout.addLayout(row3)
         self._limit_chk.toggled.connect(self._sync_limit_widgets)
@@ -257,10 +260,12 @@ class SharpBatchQtWindow(QMainWindow):
                 fr = self._folder_edit.text().strip()
                 if fr:
                     i_root = Path(fr).expanduser().resolve()
+        spz = self._spz_chk.isChecked()
         with self._opts_lock:
             self._snap_lim = bool(lim)
             self._snap_max = mx if lim else None
             self._snap_skip = skip
+            self._snap_spz = spz
             self._snap_mirror_output = m_out
             self._snap_input_root = i_root
 
@@ -341,6 +346,7 @@ class SharpBatchQtWindow(QMainWindow):
             self._recursive_chk.isChecked(),
             force_all=self._force_all_chk.isChecked(),
             mirror_output_root=mirror_out,
+            export_spz=self._spz_chk.isChecked(),
         )
         if not jobs:
             if total_found == 0:
@@ -499,6 +505,7 @@ class SharpBatchQtWindow(QMainWindow):
                 lim = self._snap_lim
                 max_s = self._snap_max
                 skip = self._snap_skip
+                spz = self._snap_spz
                 m_out = self._snap_mirror_output
                 i_root = self._snap_input_root
             try:
@@ -518,21 +525,14 @@ class SharpBatchQtWindow(QMainWindow):
                     break
                 self._bridge.job_finished.emit(r)
                 continue
-            if skip and not needs_ply_refresh(item, ply_target):
-                r = PlySidecarResult(
-                    ok=True,
-                    image_path=item,
-                    ply_path=ply_target,
-                    message="Skipped (PLY up to date)",
-                    skipped=True,
-                )
-            else:
-                r = process_image_to_sidecar_ply(
-                    item,
-                    limit_splats=lim,
-                    max_splats=max_s if lim else None,
-                    ply_output_path=ply_target,
-                )
+            r = update_ply_sidecar(
+                item,
+                skip_up_to_date=skip,
+                limit_splats=lim,
+                max_splats=max_s if lim else None,
+                ply_output_path=ply_target,
+                export_spz=spz,
+            )
             if self._quit_app.is_set():
                 break
             self._bridge.job_finished.emit(r)

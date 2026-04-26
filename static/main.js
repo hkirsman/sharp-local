@@ -13,6 +13,7 @@ const btnFullscreen = document.getElementById("btnFullscreen");
 const splatScale = document.getElementById("splatScale");
 const limitSplatsCheck = document.getElementById("limitSplatsCheck");
 const maxSplatsInput = document.getElementById("maxSplatsInput");
+const exportSpzCheck = document.getElementById("exportSpzCheck");
 const splatInfo = document.getElementById("splatInfo");
 
 /** World-units per key press (fly mode); orbit mode scales slightly with distance. */
@@ -49,7 +50,16 @@ function setSplatInfoFromApi(data) {
   if (data.decimate_error) {
     text += ` — ${data.decimate_error}`;
   }
-  splatInfo.textContent = text;
+  splatInfo.innerHTML = "";
+  splatInfo.appendChild(document.createTextNode(text));
+  if (data.spz_url) {
+    const dl = document.createElement("a");
+    dl.href = data.spz_url;
+    dl.download = "";
+    dl.textContent = " (download .spz)";
+    dl.className = "spz-link";
+    splatInfo.appendChild(dl);
+  }
 }
 
 function setSplatInfoFromSelect() {
@@ -72,7 +82,16 @@ function setSplatInfoFromSelect() {
   if (opt.dataset.decimateError) {
     text += ` — ${opt.dataset.decimateError}`;
   }
-  splatInfo.textContent = text;
+  splatInfo.innerHTML = "";
+  splatInfo.appendChild(document.createTextNode(text));
+  if (opt.dataset.spzUrl) {
+    const dl = document.createElement("a");
+    dl.href = opt.dataset.spzUrl;
+    dl.download = "";
+    dl.textContent = " (download .spz)";
+    dl.className = "spz-link";
+    splatInfo.appendChild(dl);
+  }
 }
 
 async function disposeViewer() {
@@ -269,6 +288,7 @@ btnGenerate.addEventListener("click", async () => {
     const n = Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 10_000_000) : 500_000;
     fd.append("max_splats", String(n));
   }
+  fd.append("export_spz", exportSpzCheck.checked ? "1" : "0");
   setStatus("Generating…", "working");
   btnGenerate.disabled = true;
   try {
@@ -334,6 +354,7 @@ async function refreshScenes(selectId = null) {
         if (s.splat_limit_applied) opt.dataset.splatLimited = "1";
         if (s.decimate_error) opt.dataset.decimateError = s.decimate_error;
       }
+      if (s.spz_url) opt.dataset.spzUrl = s.spz_url;
       sceneSelect.appendChild(opt);
     }
     if (selectId) {
