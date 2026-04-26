@@ -271,11 +271,23 @@ def mirrored_ply_path(image_path: Path, input_root: Path, output_root: Path) -> 
     """
     img = image_path.resolve()
     out_r = output_root.resolve()
+    input_r = input_root.resolve()
     try:
-        home_r = Path.home().resolve()
-        rel = img.relative_to(home_r)
-    except (ValueError, OSError):
-        rel = img.relative_to(input_root.resolve())
+        home_r: Optional[Path] = Path.home().resolve()
+    except (OSError, RuntimeError):
+        home_r = None
+    if home_r is not None:
+        try:
+            return (out_r / img.relative_to(home_r)).with_suffix(".ply")
+        except ValueError:
+            pass
+    try:
+        rel = img.relative_to(input_r)
+    except ValueError as exc:
+        raise ValueError(
+            f"Cannot mirror PLY path for {img}: not under "
+            f"home ({home_r}) or input root {input_r}"
+        ) from exc
     return (out_r / rel).with_suffix(".ply")
 
 
