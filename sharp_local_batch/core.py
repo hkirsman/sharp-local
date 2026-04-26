@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -117,7 +118,13 @@ def decimate_ply_splat_transform(
             "splat-transform not on PATH; install: npm install -g @playcanvas/splat-transform"
         )
         return False
-    tmp_out = ply_path.with_name("_splat_decimated_tmp.ply")
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        prefix=f"._splat_decimated_{ply_path.stem}_",
+        suffix=".ply",
+        dir=str(ply_path.parent),
+    )
+    os.close(tmp_fd)
+    tmp_out = Path(tmp_name)
     try:
         tmp_out.unlink(missing_ok=True)
         cmd = [exe, str(ply_path), "--decimate", str(target_count), str(tmp_out)]
