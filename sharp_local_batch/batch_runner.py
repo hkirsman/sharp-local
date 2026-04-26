@@ -45,14 +45,15 @@ def scan_jobs(
     if mirror_output_root is None:
         return [p for p in paths if needs_ply_refresh(p)], total
     out_r = mirror_output_root.resolve()
-    return (
-        [
-            p
-            for p in paths
-            if needs_ply_refresh(p, mirrored_ply_path(p, root_r, out_r))
-        ],
-        total,
-    )
+
+    def _needs_work(p: Path) -> bool:
+        try:
+            target = mirrored_ply_path(p, root_r, out_r)
+        except ValueError:
+            return True
+        return needs_ply_refresh(p, target)
+
+    return [p for p in paths if _needs_work(p)], total
 
 
 class DebouncedScheduler:
@@ -98,10 +99,13 @@ class _ImageWatchHandler(FileSystemEventHandler):
     def on_modified(self, event: object) -> None:
         self._handle(event)
 
-    def _handle(self, event: object) -> None:
+    def on_moved(self, event: object) -> None:
+        self._handle(event, path_attr="dest_path")
+
+    def _handle(self, event: object, *, path_attr: str = "src_path") -> None:
         if getattr(event, "is_directory", False):
             return
-        src = getattr(event, "src_path", None)
+        src = getattr(event, path_attr, None)
         if not src:
             return
         p = Path(src)
