@@ -192,6 +192,29 @@ def export_ply_to_spz(ply_path: Path, spz_path: Path) -> bool:
         return False
 
 
+def try_remove_ply_after_spz(
+    ply_path: Path,
+    spz_path: Optional[Path],
+    *,
+    remove_requested: bool,
+) -> tuple[bool, Optional[str]]:
+    """Delete ``ply_path`` after a successful SPZ export when ``remove_requested``.
+
+    Returns ``(removed, note)`` where *note* is a short user-facing reason if
+    removal was requested but the PLY was left on disk; otherwise ``None``.
+    """
+    if not remove_requested or spz_path is None:
+        return False, None
+    if not spz_path.is_file():
+        return False, "PLY kept (.spz missing after export)"
+    try:
+        ply_path.unlink()
+        return True, None
+    except OSError as e:
+        LOGGER.warning("Could not remove PLY after SPZ: %s", e)
+        return False, f"PLY kept (could not remove: {e})"
+
+
 @functools.lru_cache(maxsize=1)
 def supported_image_suffixes() -> frozenset[str]:
     ensure_sharp_imports()
@@ -360,6 +383,22 @@ def needs_ply_refresh(
     return False
 
 
+def needs_spz_refresh(ply_path: Path) -> bool:
+    """True when ``ply_path`` exists and the ``.spz`` sidecar is missing or stale.
+
+    Stale means the SPZ file is older than the PLY (e.g. PLY was regenerated).
+    """
+    if not ply_path.is_file():
+        return False
+    spz_path = ply_path.with_suffix(".spz")
+    if not spz_path.is_file():
+        return True
+    try:
+        return spz_path.stat().st_mtime < ply_path.stat().st_mtime
+    except OSError:
+        return True
+
+
 @dataclass
 class PlySidecarResult:
     ok: bool
@@ -373,6 +412,7 @@ class PlySidecarResult:
     skipped: bool = False
     spz_path: Optional[Path] = None
     spz_error: Optional[str] = None
+    ply_removed: bool = False
 
 
 def process_image_to_sidecar_ply(
@@ -382,6 +422,7 @@ def process_image_to_sidecar_ply(
     max_splats: Optional[int] = None,
     ply_output_path: Optional[Path] = None,
     export_spz: bool = False,
+    remove_ply_after_spz: bool = False,
 ) -> PlySidecarResult:
     """Run SHARP on ``image_path`` and write PLY beside it or at ``ply_output_path``; optional decimate + SPZ."""
     image_path = image_path.resolve()
@@ -467,6 +508,16 @@ def process_image_to_sidecar_ply(
     elif spz_error:
         msg += f"; {spz_error}"
 
+    ply_removed = False
+    if remove_ply_after_spz and export_spz and spz_path is not None:
+        ply_removed, note = try_remove_ply_after_spz(
+            ply_path, spz_path, remove_requested=True
+        )
+        if note:
+            msg += f"; {note}"
+        elif ply_removed:
+            msg += "; PLY removed (only .spz kept)"
+
     return PlySidecarResult(
         ok=True,
         image_path=image_path,
@@ -478,6 +529,7 @@ def process_image_to_sidecar_ply(
         decimate_error=decimate_error,
         spz_path=spz_path,
         spz_error=spz_error,
+        ply_removed=ply_removed,
     )
 
 
@@ -489,14 +541,26 @@ def update_ply_sidecar(
     max_splats: Optional[int] = None,
     ply_output_path: Optional[Path] = None,
     export_spz: bool = False,
+    spz_only: bool = False,
+    remove_ply_after_spz: bool = False,
 ) -> PlySidecarResult:
-    """Skip, top up missing SPZ, or run the full pipeline.
+    """Skip, top up missing SPZ, SPZ-only from existing PLY, or run the full pipeline.
 
     When ``skip_up_to_date`` is set and the PLY is already current, this
     avoids re-running inference: if ``export_spz`` is on but the ``.spz``
     sidecar is missing, only the SPZ conversion runs against the existing
     PLY; otherwise the file is reported as skipped.  In all other cases the
     full :func:`process_image_to_sidecar_ply` pipeline runs.
+
+    When ``spz_only`` is set (with ``export_spz``) and a PLY already exists at
+    the target path, SHARP is not run: optional ``limit_splats`` /
+    ``max_splats`` runs ``decimate_ply_splat_transform`` on that file, then
+    ``export_ply_to_spz``.  If there is **no** PLY yet, this falls back to the
+    full :func:`process_image_to_sidecar_ply` pipeline (inference, optional
+    decimate, SPZ) so a first-time folder still works.
+
+    When ``remove_ply_after_spz`` is set, the target ``.ply`` is deleted after a
+    successful ``.spz`` write (batch use; keeps disk usage down).
     """
     image_path = image_path.resolve()
     ply_path = (
@@ -504,6 +568,122 @@ def update_ply_sidecar(
         if ply_output_path is None
         else ply_output_path.resolve()
     )
+
+    if spz_only:
+        if not export_spz:
+            return PlySidecarResult(
+                ok=False,
+                image_path=image_path,
+                ply_path=ply_path,
+                message="SPZ-only mode requires Export SPZ to be enabled",
+            )
+        if not ply_path.is_file():
+            return process_image_to_sidecar_ply(
+                image_path,
+                limit_splats=limit_splats,
+                max_splats=max_splats,
+                ply_output_path=ply_path,
+                export_spz=export_spz,
+                remove_ply_after_spz=remove_ply_after_spz,
+            )
+        if limit_splats and max_splats is not None and max_splats < 1:
+            return PlySidecarResult(
+                ok=False,
+                image_path=image_path,
+                ply_path=ply_path,
+                message="max_splats must be at least 1",
+            )
+
+        spz_target = ply_path.with_suffix(".spz")
+        if skip_up_to_date and spz_target.is_file():
+            try:
+                if spz_target.stat().st_mtime >= ply_path.stat().st_mtime:
+                    return PlySidecarResult(
+                        ok=True,
+                        image_path=image_path,
+                        ply_path=ply_path,
+                        message="Skipped (SPZ up to date with PLY)",
+                        skipped=True,
+                    )
+            except OSError:
+                pass
+
+        splat_count_full: Optional[int] = None
+        try:
+            splat_count_full = count_ply_vertices(ply_path)
+        except (OSError, ValueError):
+            pass
+
+        splat_count = splat_count_full
+        limit_applied = False
+        decimate_error: Optional[str] = None
+
+        if (
+            limit_splats
+            and max_splats is not None
+            and splat_count_full is not None
+            and splat_count_full > max_splats
+        ):
+            if decimate_ply_splat_transform(ply_path, max_splats):
+                splat_count = count_ply_vertices(ply_path)
+                limit_applied = (
+                    splat_count is not None and splat_count < splat_count_full
+                )
+            else:
+                decimate_error = (
+                    "Decimation failed or splat-transform missing; "
+                    "install: npm install -g @playcanvas/splat-transform"
+                )
+
+        if export_ply_to_spz(ply_path, spz_target):
+            try:
+                count = count_ply_vertices(ply_path)
+            except (OSError, ValueError):
+                count = splat_count
+            msg = "SPZ exported (existing PLY only)"
+            if count is not None:
+                msg += f" — {count:,} splats"
+            if limit_applied and splat_count_full is not None and count is not None:
+                if splat_count_full > count:
+                    msg += f" (from {splat_count_full:,})"
+            if decimate_error:
+                msg += f"; {decimate_error}"
+            ply_removed = False
+            if remove_ply_after_spz:
+                ply_removed, note = try_remove_ply_after_spz(
+                    ply_path, spz_target, remove_requested=True
+                )
+                if note:
+                    msg += f"; {note}"
+                elif ply_removed:
+                    msg += "; PLY removed (only .spz kept)"
+            return PlySidecarResult(
+                ok=True,
+                image_path=image_path,
+                ply_path=ply_path,
+                message=msg,
+                splat_count=count,
+                splat_count_full=splat_count_full if splat_count_full is not None else count,
+                limit_applied=limit_applied,
+                decimate_error=decimate_error,
+                spz_path=spz_target,
+                ply_removed=ply_removed,
+            )
+        err = "SPZ export failed (gaussforge missing or conversion error)"
+        fail_msg = err
+        if decimate_error:
+            fail_msg = f"{err}; {decimate_error}"
+        return PlySidecarResult(
+            ok=False,
+            image_path=image_path,
+            ply_path=ply_path,
+            message=fail_msg,
+            splat_count=splat_count,
+            splat_count_full=splat_count_full,
+            limit_applied=limit_applied,
+            decimate_error=decimate_error,
+            spz_error=err,
+        )
 
     if skip_up_to_date and ply_path.is_file():
         try:
@@ -521,6 +701,15 @@ def update_ply_sidecar(
                     msg = "SPZ exported (PLY current)"
                     if count is not None:
                         msg += f" — {count:,} splats"
+                    ply_removed = False
+                    if remove_ply_after_spz:
+                        ply_removed, note = try_remove_ply_after_spz(
+                            ply_path, spz_target, remove_requested=True
+                        )
+                        if note:
+                            msg += f"; {note}"
+                        elif ply_removed:
+                            msg += "; PLY removed (only .spz kept)"
                     return PlySidecarResult(
                         ok=True,
                         image_path=image_path,
@@ -529,6 +718,7 @@ def update_ply_sidecar(
                         splat_count=count,
                         splat_count_full=count,
                         spz_path=spz_target,
+                        ply_removed=ply_removed,
                     )
                 err = "SPZ export failed (gaussforge missing or conversion error)"
                 return PlySidecarResult(
@@ -552,4 +742,5 @@ def update_ply_sidecar(
         max_splats=max_splats,
         ply_output_path=ply_path,
         export_spz=export_spz,
+        remove_ply_after_spz=remove_ply_after_spz,
     )

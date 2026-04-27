@@ -17,6 +17,7 @@ from sharp_local_batch.core import (
     list_image_paths,
     mirrored_ply_path,
     needs_ply_refresh,
+    needs_spz_refresh,
     output_ply_path_for_job,
     sidecar_ply_path,
     update_ply_sidecar,
@@ -30,11 +31,18 @@ def scan_jobs(
     force_all: bool,
     mirror_output_root: Optional[Path] = None,
     export_spz: bool = False,
+    spz_only: bool = False,
 ) -> tuple[list[Path], int]:
     """Images under ``root`` that need work (or all images if ``force_all``).
 
     When ``export_spz`` is set, files whose PLY is current but ``.spz`` sidecar
     is missing are still queued so the worker can top up the SPZ.
+
+    When ``spz_only`` is set (requires ``export_spz``), images **without** a
+    target PLY are still queued so the worker can run the full SHARP pipeline
+    once.  Images that already have a PLY are queued when ``.spz`` is missing,
+    stale vs that PLY, or when ``force_all`` is set.  The worker then converts
+    PLY → SPZ without SHARP only when the PLY already exists.
 
     Returns ``(jobs, total_supported_images)`` where *total_supported_images* is the
     count of supported files found before the PLY-freshness filter — useful to tell
@@ -43,6 +51,37 @@ def scan_jobs(
     scan_root = effective_batch_scan_root(root)
     paths = list_image_paths(scan_root, recursive)
     total = len(paths)
+    effective_spz_only = bool(spz_only and export_spz)
+
+    if effective_spz_only:
+        root_r = root.resolve()
+        if mirror_output_root is None:
+
+            def _spz_only_need(p: Path) -> bool:
+                ply = sidecar_ply_path(p)
+                if not ply.is_file():
+                    return True
+                if force_all:
+                    return True
+                return needs_spz_refresh(ply)
+
+            return [p for p in paths if _spz_only_need(p)], total
+
+        out_r = mirror_output_root.resolve()
+
+        def _spz_only_need_m(p: Path) -> bool:
+            try:
+                target = mirrored_ply_path(p, root_r, out_r)
+            except ValueError:
+                return True
+            if not target.is_file():
+                return True
+            if force_all:
+                return True
+            return needs_spz_refresh(target)
+
+        return [p for p in paths if _spz_only_need_m(p)], total
+
     if force_all:
         return paths, total
     root_r = root.resolve()
@@ -167,6 +206,8 @@ def worker_loop(
     mirror_input_root: Optional[Path],
     on_result: Callable[[PlySidecarResult], None],
     export_spz: bool = False,
+    spz_only: bool = False,
+    remove_ply_after_spz: bool = False,
 ) -> None:
     """Drain ``job_q`` until ``None`` sentinel or ``stop_event``."""
     while True:
@@ -210,5 +251,7 @@ def worker_loop(
                 max_splats=max_splats,
                 ply_output_path=ply_target,
                 export_spz=export_spz,
+                spz_only=spz_only,
+                remove_ply_after_spz=remove_ply_after_spz,
             )
         )

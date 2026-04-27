@@ -26,7 +26,7 @@ class SharpBatchGui:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("sharp_local_batch")
-        self.root.minsize(520, 420)
+        self.root.minsize(640, 440)
 
         self._folder_var = tk.StringVar(value="")
         self._recursive_var = tk.BooleanVar(value=True)
@@ -35,6 +35,8 @@ class SharpBatchGui:
         self._max_splats_var = tk.StringVar(value="500000")
         self._skip_up_to_date_var = tk.BooleanVar(value=True)
         self._spz_var = tk.BooleanVar(value=True)
+        self._spz_only_var = tk.BooleanVar(value=False)
+        self._remove_ply_after_spz_var = tk.BooleanVar(value=False)
         self._watch_var = tk.BooleanVar(value=False)
         self._mirror_var = tk.BooleanVar(value=False)
         self._output_mirror_var = tk.StringVar(value="")
@@ -47,6 +49,8 @@ class SharpBatchGui:
         self._snap_max: int | None = None
         self._snap_skip = True
         self._snap_spz = True
+        self._snap_spz_only = False
+        self._snap_remove_ply_after_spz = False
         self._snap_mirror_output: Path | None = None
         self._snap_input_root: Path | None = None
         self._scan_running = False
@@ -146,25 +150,44 @@ class SharpBatchGui:
 
         row3 = ttk.Frame(root_f)
         row3.pack(fill=tk.X, **pad)
-        ttk.Checkbutton(row3, text="Limit splat count", variable=self._limit_var).pack(
-            side=tk.LEFT
+        self._limit_cb = ttk.Checkbutton(
+            row3, text="Limit splat count", variable=self._limit_var
         )
+        self._limit_cb.pack(side=tk.LEFT)
         ttk.Label(row3, text="Max splats").pack(side=tk.LEFT, padx=(8, 4))
-        self._max_entry = ttk.Entry(row3, textvariable=self._max_splats_var, width=12)
-        self._max_entry.pack(side=tk.LEFT)
+        self._max_entry = ttk.Entry(row3, textvariable=self._max_splats_var, width=14)
+        self._max_entry.pack(side=tk.LEFT, padx=(0, 8))
         self._skip_cb = ttk.Checkbutton(
             row3,
             text="Skip up-to-date PLY",
             variable=self._skip_up_to_date_var,
         )
-        self._skip_cb.pack(side=tk.LEFT, padx=(16, 0))
-        ttk.Checkbutton(row3, text="Export SPZ", variable=self._spz_var).pack(
-            side=tk.LEFT, padx=(16, 0)
-        )
+        self._skip_cb.pack(side=tk.LEFT, padx=(8, 0))
 
+        row3b = ttk.Frame(root_f)
+        row3b.pack(fill=tk.X, **pad)
+        self._spz_cb = ttk.Checkbutton(row3b, text="Export SPZ", variable=self._spz_var)
+        self._spz_cb.pack(side=tk.LEFT)
+        self._spz_only_cb = ttk.Checkbutton(
+            row3b,
+            text="SPZ from existing PLY only (no new render)",
+            variable=self._spz_only_var,
+            command=self._on_spz_only_toggle,
+        )
+        self._spz_only_cb.pack(side=tk.LEFT, padx=(16, 0))
+        self._remove_ply_cb = ttk.Checkbutton(
+            row3b,
+            text="Remove PLY after successful SPZ",
+            variable=self._remove_ply_after_spz_var,
+        )
+        self._remove_ply_cb.pack(side=tk.LEFT, padx=(16, 0))
+
+        self._spz_var.trace_add("write", lambda *_: self._sync_remove_ply_widgets())
         self._limit_var.trace_add("write", lambda *_: self._sync_limit_widgets())
         self._sync_limit_widgets()
         self._sync_force_skip_widgets()
+        self._on_spz_only_toggle()
+        self._sync_remove_ply_widgets()
 
         row4 = ttk.Frame(root_f)
         row4.pack(fill=tk.X, **pad)
@@ -201,13 +224,29 @@ class SharpBatchGui:
             "under the target folder for mirror. Optional cap uses splat-transform "
             "(npm i -g @playcanvas/splat-transform)."
         )
-        ttk.Label(root_f, text=hint, wraplength=500, foreground="#666").pack(
+        ttk.Label(root_f, text=hint, wraplength=620, foreground="#666").pack(
             fill=tk.X, **pad
         )
 
     def _sync_limit_widgets(self) -> None:
         on = self._limit_var.get()
         self._max_entry.configure(state=tk.NORMAL if on else "disabled")
+
+    def _on_spz_only_toggle(self) -> None:
+        if self._spz_only_var.get():
+            self._spz_var.set(True)
+            self._spz_cb.state(["disabled"])
+        else:
+            self._spz_cb.state(["!disabled"])
+        self._sync_limit_widgets()
+        self._sync_remove_ply_widgets()
+
+    def _sync_remove_ply_widgets(self) -> None:
+        if self._spz_var.get():
+            self._remove_ply_cb.state(["!disabled"])
+        else:
+            self._remove_ply_after_spz_var.set(False)
+            self._remove_ply_cb.state(["disabled"])
 
     def _sync_force_skip_widgets(self) -> None:
         if self._force_all_var.get():
@@ -270,11 +309,15 @@ class SharpBatchGui:
                 if fr:
                     i_root = Path(fr).expanduser().resolve()
         spz = self._spz_var.get()
+        spz_only = self._spz_only_var.get()
+        rm_ply = self._remove_ply_after_spz_var.get()
         with self._opts_lock:
             self._snap_lim = bool(lim)
             self._snap_max = mx if lim else None
             self._snap_skip = skip
             self._snap_spz = spz
+            self._snap_spz_only = spz_only
+            self._snap_remove_ply_after_spz = rm_ply
             self._snap_mirror_output = m_out
             self._snap_input_root = i_root
 
@@ -352,6 +395,7 @@ class SharpBatchGui:
             force_all=self._force_all_var.get(),
             mirror_output_root=mirror_out,
             export_spz=self._spz_var.get(),
+            spz_only=self._spz_only_var.get(),
         )
         if not jobs:
             if total_found == 0:
@@ -363,10 +407,18 @@ class SharpBatchGui:
                     "Photos → Settings → iCloud → Download Originals to this Mac.",
                 )
             else:
-                messagebox.showinfo(
-                    "Scan",
-                    "No images need processing (PLY already up to date).",
-                )
+                if self._spz_only_var.get() and self._spz_var.get():
+                    messagebox.showinfo(
+                        "Scan",
+                        "No work found: every image already has an .spz that is up "
+                        "to date with its PLY. Turn on Reprocess all to refresh .spz "
+                        "files anyway.",
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Scan",
+                        "No images need processing (PLY already up to date).",
+                    )
             return
 
         self._snapshot_opts()
@@ -500,6 +552,8 @@ class SharpBatchGui:
                 max_s = self._snap_max
                 skip = self._snap_skip
                 spz = self._snap_spz
+                spz_only = self._snap_spz_only
+                rm_ply = self._snap_remove_ply_after_spz
                 m_out = self._snap_mirror_output
                 i_root = self._snap_input_root
 
@@ -526,6 +580,8 @@ class SharpBatchGui:
                 max_splats=max_s if lim else None,
                 ply_output_path=ply_target,
                 export_spz=spz,
+                spz_only=spz_only,
+                remove_ply_after_spz=rm_ply,
             )
 
             self._safe_after(0, self._on_job_done, r)

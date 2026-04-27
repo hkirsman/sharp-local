@@ -1,5 +1,5 @@
 flask>=3.0.0
-gaussforge>=0.5.3
+gaussforge==0.5.5
 plyfile
 watchdog>=4.0.0
 PySide6-Essentials>=6.7.0

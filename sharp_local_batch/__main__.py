@@ -60,6 +60,24 @@ def _cli_main() -> int:
         help="Skip Niantic .spz export (SPZ is exported by default alongside PLY)",
     )
     p.add_argument(
+        "--spz-only",
+        action="store_true",
+        help=(
+            "SPZ from existing PLY when possible: if a PLY exists, skip SHARP and "
+            "only refresh .spz (optional decimate first). If no PLY yet, run full "
+            "SHARP then .spz. Implies SPZ export (incompatible with --no-export-spz)"
+        ),
+    )
+    p.add_argument(
+        "--remove-ply-after-spz",
+        action="store_true",
+        help=(
+            "After a successful .spz export, delete the .ply file to save space "
+            "(batch only; next run without a PLY will run SHARP again). "
+            "Requires SPZ export (incompatible with --no-export-spz)"
+        ),
+    )
+    p.add_argument(
         "--output-root",
         type=Path,
         default=None,
@@ -69,6 +87,22 @@ def _cli_main() -> int:
         ),
     )
     args = p.parse_args()
+
+    if args.spz_only and not args.export_spz:
+        print(
+            "--spz-only cannot be combined with --no-export-spz "
+            "(SPZ-only mode always exports .spz).",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.remove_ply_after_spz and not args.export_spz:
+        print(
+            "--remove-ply-after-spz requires SPZ export "
+            "(do not pass --no-export-spz).",
+            file=sys.stderr,
+        )
+        return 1
 
     root = args.folder.expanduser().resolve()
     if not root.is_dir():
@@ -94,6 +128,7 @@ def _cli_main() -> int:
         force_all=args.force_all,
         mirror_output_root=mirror_out,
         export_spz=args.export_spz,
+        spz_only=args.spz_only,
     )
     if not jobs:
         if total_found == 0:
@@ -102,7 +137,13 @@ def _cli_main() -> int:
                 file=sys.stderr,
             )
         else:
-            print("No images need processing (PLY already up to date).")
+            if args.spz_only:
+                print(
+                    "No work: every image has .spz up to date with its PLY. "
+                    "Use --force-all to refresh every .spz.",
+                )
+            else:
+                print("No images need processing (PLY already up to date).")
         return 0
 
     max_s = args.max_splats if args.limit_splats else None
@@ -131,6 +172,8 @@ def _cli_main() -> int:
             max_splats=max_s,
             ply_output_path=ply_target,
             export_spz=args.export_spz,
+            spz_only=args.spz_only,
+            remove_ply_after_spz=args.remove_ply_after_spz,
         )
         tag = "ok" if r.ok else "err"
         if r.skipped:
