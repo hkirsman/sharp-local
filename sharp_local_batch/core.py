@@ -378,7 +378,7 @@ def needs_ply_refresh(
             return True
     except OSError:
         return True
-    if require_spz and not ply.with_suffix(".spz").is_file():
+    if require_spz and needs_spz_refresh(ply):
         return True
     return False
 
@@ -692,7 +692,7 @@ def update_ply_sidecar(
             ply_stale = True
         if not ply_stale:
             spz_target = ply_path.with_suffix(".spz")
-            if export_spz and not spz_target.is_file():
+            if export_spz and needs_spz_refresh(ply_path):
                 if export_ply_to_spz(ply_path, spz_target):
                     try:
                         count = count_ply_vertices(ply_path)
