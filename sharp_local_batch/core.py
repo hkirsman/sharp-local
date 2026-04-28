@@ -421,8 +421,8 @@ def process_image_to_sidecar_ply(
     limit_splats: bool = False,
     max_splats: Optional[int] = None,
     ply_output_path: Optional[Path] = None,
-    export_spz: bool = False,
-    remove_ply_after_spz: bool = False,
+    export_spz: bool = True,
+    remove_ply_after_spz: bool = True,
 ) -> PlySidecarResult:
     """Run SHARP on ``image_path`` and write PLY beside it or at ``ply_output_path``; optional decimate + SPZ."""
     image_path = image_path.resolve()
@@ -540,9 +540,9 @@ def update_ply_sidecar(
     limit_splats: bool = False,
     max_splats: Optional[int] = None,
     ply_output_path: Optional[Path] = None,
-    export_spz: bool = False,
+    export_spz: bool = True,
     spz_only: bool = False,
-    remove_ply_after_spz: bool = False,
+    remove_ply_after_spz: bool = True,
 ) -> PlySidecarResult:
     """Skip, top up missing SPZ, SPZ-only from existing PLY, or run the full pipeline.
 

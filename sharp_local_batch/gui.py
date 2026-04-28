@@ -36,7 +36,7 @@ class SharpBatchGui:
         self._skip_up_to_date_var = tk.BooleanVar(value=True)
         self._spz_var = tk.BooleanVar(value=True)
         self._spz_only_var = tk.BooleanVar(value=False)
-        self._remove_ply_after_spz_var = tk.BooleanVar(value=False)
+        self._remove_ply_after_spz_var = tk.BooleanVar(value=True)
         self._watch_var = tk.BooleanVar(value=False)
         self._mirror_var = tk.BooleanVar(value=False)
         self._output_mirror_var = tk.StringVar(value="")

@@ -159,6 +159,7 @@ class SharpBatchQtWindow(QMainWindow):
         )
         row3b.addWidget(self._spz_only_chk)
         self._remove_ply_chk = QCheckBox("Remove PLY after successful SPZ")
+        self._remove_ply_chk.setChecked(True)
         self._remove_ply_chk.setToolTip(
             "Deletes the .ply only after .spz is written successfully. "
             "The web preview tool is unchanged; batch only. "

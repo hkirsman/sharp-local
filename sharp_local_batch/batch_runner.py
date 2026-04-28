@@ -30,7 +30,7 @@ def scan_jobs(
     *,
     force_all: bool,
     mirror_output_root: Optional[Path] = None,
-    export_spz: bool = False,
+    export_spz: bool = True,
     spz_only: bool = False,
 ) -> tuple[list[Path], int]:
     """Images under ``root`` that need work (or all images if ``force_all``).
@@ -205,9 +205,9 @@ def worker_loop(
     mirror_output_root: Optional[Path],
     mirror_input_root: Optional[Path],
     on_result: Callable[[PlySidecarResult], None],
-    export_spz: bool = False,
+    export_spz: bool = True,
     spz_only: bool = False,
-    remove_ply_after_spz: bool = False,
+    remove_ply_after_spz: bool = True,
 ) -> None:
     """Drain ``job_q`` until ``None`` sentinel or ``stop_event``."""
     while True:

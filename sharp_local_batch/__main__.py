@@ -69,12 +69,13 @@ def _cli_main() -> int:
         ),
     )
     p.add_argument(
-        "--remove-ply-after-spz",
-        action="store_true",
+        "--keep-ply",
+        action="store_false",
+        dest="remove_ply_after_spz",
         help=(
-            "After a successful .spz export, delete the .ply file to save space "
-            "(batch only; next run without a PLY will run SHARP again). "
-            "Requires SPZ export (incompatible with --no-export-spz)"
+            "Keep the .ply file after a successful .spz export (by default "
+            "the PLY is deleted to save space; next run without a PLY will "
+            "run SHARP again). Incompatible with --no-export-spz"
         ),
     )
     p.add_argument(
@@ -98,7 +99,7 @@ def _cli_main() -> int:
 
     if args.remove_ply_after_spz and not args.export_spz:
         print(
-            "--remove-ply-after-spz requires SPZ export "
+            "PLY removal requires SPZ export "
             "(do not pass --no-export-spz).",
             file=sys.stderr,
         )
