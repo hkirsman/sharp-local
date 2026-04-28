@@ -19,7 +19,6 @@ Or manually:
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import shutil
@@ -40,6 +39,7 @@ from sharp_local_batch.core import (
     count_ply_vertices,
     decimate_ply_splat_transform,
     ensure_sharp_imports,
+    export_ply_to_spz,
     get_predictor,
     inference_device,
     predictor_loaded,
@@ -100,32 +100,12 @@ def _parse_splat_limit_form() -> tuple[bool, Optional[int], Optional[str]]:
     return True, n, None
 
 
-def _export_sharp_ply_to_spz(ply_path: Path, spz_path: Path) -> bool:
-    """Write Niantic-style .spz from SHARP splat.ply (vertex-only PLY for GaussForge)."""
-    try:
-        import gaussforge
-        from plyfile import PlyData, PlyElement
-    except ImportError:
-        LOGGER.warning(
-            "gaussforge or plyfile not importable; run: pip install -e ./ml-sharp -r requirements.txt"
-        )
-        return False
-    try:
-        plydata = PlyData.read(str(ply_path))
-        vertex_el = plydata["vertex"]
-        minimal = PlyData([PlyElement.describe(vertex_el.data, "vertex")])
-        buf = io.BytesIO()
-        minimal.write(buf)
-        result = gaussforge.GaussForge().convert(buf.getvalue(), "ply", "spz")
-        if "error" in result:
-            LOGGER.warning("SPZ conversion failed: %s", result.get("error"))
-            return False
-        raw = result["data"]
-        spz_path.write_bytes(raw if isinstance(raw, (bytes, bytearray)) else bytes(raw))
+def _parse_export_spz_form() -> bool:
+    """From multipart form: whether SPZ export is requested (default True)."""
+    flag = (request.form.get("export_spz") or "").strip().lower()
+    if not flag:
         return True
-    except Exception:
-        LOGGER.exception("SPZ export failed for %s", ply_path)
-        return False
+    return flag in ("1", "true", "on", "yes")
 
 
 @app.route("/favicon.ico")
@@ -240,6 +220,7 @@ def generate() -> Any:
     limit_on, max_splats, limit_err = _parse_splat_limit_form()
     if limit_err:
         return jsonify({"error": limit_err}), 400
+    do_spz = _parse_export_spz_form()
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     scene_id = str(uuid.uuid4())
@@ -285,7 +266,7 @@ def generate() -> Any:
                 )
 
     spz_path = scene_dir / "splat.spz"
-    has_spz = _export_sharp_ply_to_spz(ply_path, spz_path)
+    has_spz = export_ply_to_spz(ply_path, spz_path) if do_spz else False
 
     meta = {
         "id": scene_id,

@@ -32,10 +32,9 @@ from sharp_local_batch.core import (
     PlySidecarResult,
     default_macos_photos_library_path,
     is_photos_library_bundle,
-    needs_ply_refresh,
     output_ply_path_for_job,
-    process_image_to_sidecar_ply,
     sidecar_ply_path,
+    update_ply_sidecar,
 )
 
 
@@ -50,7 +49,7 @@ class SharpBatchQtWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("sharp_local_batch")
-        self.resize(580, 520)
+        self.resize(720, 540)
 
         self._job_q: queue.Queue[Path] = queue.Queue()
         self._quit_app = threading.Event()
@@ -58,6 +57,9 @@ class SharpBatchQtWindow(QMainWindow):
         self._snap_lim = False
         self._snap_max: int | None = None
         self._snap_skip = True
+        self._snap_spz = True
+        self._snap_spz_only = False
+        self._snap_remove_ply_after_spz = False
         self._batch_total = 0
         self._batch_done = 0
         self._watch: WatchController | None = None
@@ -136,16 +138,43 @@ class SharpBatchQtWindow(QMainWindow):
         row3.addWidget(self._limit_chk)
         row3.addWidget(QLabel("Max splats"))
         self._max_edit = QLineEdit("500000")
-        self._max_edit.setMaximumWidth(120)
+        self._max_edit.setMinimumWidth(120)
+        self._max_edit.setFixedWidth(132)
         row3.addWidget(self._max_edit)
         self._skip_chk = QCheckBox("Skip up-to-date PLY")
         self._skip_chk.setChecked(True)
         row3.addWidget(self._skip_chk)
         row3.addStretch()
         layout.addLayout(row3)
+
+        row3b = QHBoxLayout()
+        self._spz_chk = QCheckBox("Export SPZ")
+        self._spz_chk.setChecked(True)
+        row3b.addWidget(self._spz_chk)
+        self._spz_only_chk = QCheckBox("SPZ from existing PLY only (no new render)")
+        self._spz_only_chk.setToolTip(
+            "When a PLY already exists: no SHARP — optional Limit splat count runs "
+            "splat-transform on that PLY, then .spz is written. "
+            "When no PLY yet: runs full SHARP pipeline once, then .spz."
+        )
+        row3b.addWidget(self._spz_only_chk)
+        self._remove_ply_chk = QCheckBox("Remove PLY after successful SPZ")
+        self._remove_ply_chk.setChecked(True)
+        self._remove_ply_chk.setToolTip(
+            "Deletes the .ply only after .spz is written successfully. "
+            "The web preview tool is unchanged; batch only. "
+            "Without a PLY, the next batch run will run SHARP again for that image."
+        )
+        row3b.addWidget(self._remove_ply_chk)
+        row3b.addStretch()
+        layout.addLayout(row3b)
         self._limit_chk.toggled.connect(self._sync_limit_widgets)
+        self._spz_chk.toggled.connect(self._sync_remove_ply_widgets)
+        self._spz_only_chk.toggled.connect(self._on_spz_only_toggled)
         self._sync_limit_widgets()
         self._sync_force_skip_widgets(False)
+        self._on_spz_only_toggled(self._spz_only_chk.isChecked())
+        self._sync_remove_ply_widgets()
 
         row4 = QHBoxLayout()
         scan_btn = QPushButton("Scan & queue jobs")
@@ -188,6 +217,24 @@ class SharpBatchQtWindow(QMainWindow):
 
     def _sync_limit_widgets(self) -> None:
         self._max_edit.setEnabled(self._limit_chk.isChecked())
+
+    @Slot(bool)
+    def _on_spz_only_toggled(self, checked: bool) -> None:
+        if checked:
+            self._spz_chk.setChecked(True)
+            self._spz_chk.setEnabled(False)
+        else:
+            self._spz_chk.setEnabled(True)
+        self._sync_limit_widgets()
+        self._sync_remove_ply_widgets()
+
+    @Slot(bool)
+    def _sync_remove_ply_widgets(self, _checked: bool = False) -> None:
+        if self._spz_chk.isChecked():
+            self._remove_ply_chk.setEnabled(True)
+        else:
+            self._remove_ply_chk.setChecked(False)
+            self._remove_ply_chk.setEnabled(False)
 
     @Slot(bool)
     def _sync_force_skip_widgets(self, _checked: bool) -> None:
@@ -257,10 +304,16 @@ class SharpBatchQtWindow(QMainWindow):
                 fr = self._folder_edit.text().strip()
                 if fr:
                     i_root = Path(fr).expanduser().resolve()
+        spz = self._spz_chk.isChecked()
+        spz_only = self._spz_only_chk.isChecked()
+        rm_ply = self._remove_ply_chk.isChecked()
         with self._opts_lock:
             self._snap_lim = bool(lim)
             self._snap_max = mx if lim else None
             self._snap_skip = skip
+            self._snap_spz = spz
+            self._snap_spz_only = spz_only
+            self._snap_remove_ply_after_spz = rm_ply
             self._snap_mirror_output = m_out
             self._snap_input_root = i_root
 
@@ -341,6 +394,8 @@ class SharpBatchQtWindow(QMainWindow):
             self._recursive_chk.isChecked(),
             force_all=self._force_all_chk.isChecked(),
             mirror_output_root=mirror_out,
+            export_spz=self._spz_chk.isChecked(),
+            spz_only=self._spz_only_chk.isChecked(),
         )
         if not jobs:
             if total_found == 0:
@@ -353,11 +408,20 @@ class SharpBatchQtWindow(QMainWindow):
                     "Photos → Settings → iCloud → Download Originals to this Mac.",
                 )
             else:
-                QMessageBox.information(
-                    self,
-                    "Scan",
-                    "No images need processing (PLY already up to date).",
-                )
+                if self._spz_only_chk.isChecked() and self._spz_chk.isChecked():
+                    QMessageBox.information(
+                        self,
+                        "Scan",
+                        "No work found: every image already has an .spz that is up "
+                        "to date with its PLY. Turn on Reprocess all to refresh .spz "
+                        "files anyway.",
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Scan",
+                        "No images need processing (PLY already up to date).",
+                    )
             return
 
         self._snapshot_opts()
@@ -499,6 +563,9 @@ class SharpBatchQtWindow(QMainWindow):
                 lim = self._snap_lim
                 max_s = self._snap_max
                 skip = self._snap_skip
+                spz = self._snap_spz
+                spz_only = self._snap_spz_only
+                rm_ply = self._snap_remove_ply_after_spz
                 m_out = self._snap_mirror_output
                 i_root = self._snap_input_root
             try:
@@ -518,21 +585,16 @@ class SharpBatchQtWindow(QMainWindow):
                     break
                 self._bridge.job_finished.emit(r)
                 continue
-            if skip and not needs_ply_refresh(item, ply_target):
-                r = PlySidecarResult(
-                    ok=True,
-                    image_path=item,
-                    ply_path=ply_target,
-                    message="Skipped (PLY up to date)",
-                    skipped=True,
-                )
-            else:
-                r = process_image_to_sidecar_ply(
-                    item,
-                    limit_splats=lim,
-                    max_splats=max_s if lim else None,
-                    ply_output_path=ply_target,
-                )
+            r = update_ply_sidecar(
+                item,
+                skip_up_to_date=skip,
+                limit_splats=lim,
+                max_splats=max_s if lim else None,
+                ply_output_path=ply_target,
+                export_spz=spz,
+                spz_only=spz_only,
+                remove_ply_after_spz=rm_ply,
+            )
             if self._quit_app.is_set():
                 break
             self._bridge.job_finished.emit(r)
