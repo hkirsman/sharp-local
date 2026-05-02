@@ -372,6 +372,16 @@ def needs_ply_refresh(
     """True if the PLY (and optionally the .spz sidecar) needs (re)generating."""
     ply = sidecar_ply_path(image_path) if ply_path is None else ply_path
     if not ply.is_file():
+        # PLY missing — but if SPZ exists and is current vs the image,
+        # the work was already done (PLY was removed after SPZ export).
+        if require_spz:
+            spz_path = ply.with_suffix(".spz")
+            if spz_path.is_file():
+                try:
+                    if spz_path.stat().st_mtime >= image_path.stat().st_mtime:
+                        return False
+                except OSError:
+                    pass
         return True
     try:
         if image_path.stat().st_mtime > ply.stat().st_mtime:
@@ -578,6 +588,22 @@ def update_ply_sidecar(
                 message="SPZ-only mode requires Export SPZ to be enabled",
             )
         if not ply_path.is_file():
+            # PLY missing — check if SPZ already exists and is current
+            # (PLY was likely removed after a previous successful SPZ export).
+            spz_target = ply_path.with_suffix(".spz")
+            if skip_up_to_date and spz_target.is_file():
+                try:
+                    if spz_target.stat().st_mtime >= image_path.stat().st_mtime:
+                        return PlySidecarResult(
+                            ok=True,
+                            image_path=image_path,
+                            ply_path=ply_path,
+                            message="Skipped (SPZ up to date, PLY previously removed)",
+                            skipped=True,
+                            spz_path=spz_target,
+                        )
+                except OSError:
+                    pass
             return process_image_to_sidecar_ply(
                 image_path,
                 limit_splats=limit_splats,
@@ -684,6 +710,24 @@ def update_ply_sidecar(
             decimate_error=decimate_error,
             spz_error=err,
         )
+
+    if skip_up_to_date and not ply_path.is_file() and export_spz:
+        # PLY missing — check if SPZ already exists and is current vs image
+        # (PLY was likely removed after a previous successful SPZ export).
+        spz_target = ply_path.with_suffix(".spz")
+        if spz_target.is_file():
+            try:
+                if spz_target.stat().st_mtime >= image_path.stat().st_mtime:
+                    return PlySidecarResult(
+                        ok=True,
+                        image_path=image_path,
+                        ply_path=ply_path,
+                        message="Skipped (SPZ up to date, PLY previously removed)",
+                        skipped=True,
+                        spz_path=spz_target,
+                    )
+            except OSError:
+                pass
 
     if skip_up_to_date and ply_path.is_file():
         try:

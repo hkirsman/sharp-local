@@ -60,6 +60,15 @@ def scan_jobs(
             def _spz_only_need(p: Path) -> bool:
                 ply = sidecar_ply_path(p)
                 if not ply.is_file():
+                    # PLY missing — check if SPZ already exists and is current
+                    # (PLY may have been removed after a previous SPZ export).
+                    spz = ply.with_suffix(".spz")
+                    if spz.is_file():
+                        try:
+                            if spz.stat().st_mtime >= p.stat().st_mtime:
+                                return False
+                        except OSError:
+                            pass
                     return True
                 if force_all:
                     return True
@@ -75,6 +84,14 @@ def scan_jobs(
             except ValueError:
                 return True
             if not target.is_file():
+                # PLY missing — check if SPZ already exists and is current.
+                spz = target.with_suffix(".spz")
+                if spz.is_file():
+                    try:
+                        if spz.stat().st_mtime >= p.stat().st_mtime:
+                            return False
+                    except OSError:
+                        pass
                 return True
             if force_all:
                 return True
