@@ -13,6 +13,7 @@ from watchdog.observers import Observer
 from sharp_local_batch.core import (
     PlySidecarResult,
     effective_batch_scan_root,
+    is_spz_current_for_image,
     is_supported_image,
     list_image_paths,
     mirrored_ply_path,
@@ -22,17 +23,6 @@ from sharp_local_batch.core import (
     sidecar_ply_path,
     update_ply_sidecar,
 )
-
-
-def _spz_is_current(ply_path: Path, image_path: Path) -> bool:
-    """True when PLY is absent but its .spz sidecar exists and is current vs the image."""
-    spz = ply_path.with_suffix(".spz")
-    if not spz.is_file():
-        return False
-    try:
-        return spz.stat().st_mtime >= image_path.stat().st_mtime
-    except OSError:
-        return False
 
 
 def scan_jobs(
@@ -73,7 +63,7 @@ def scan_jobs(
                 if not ply.is_file():
                     if force_all:
                         return True
-                    return not _spz_is_current(ply, p)
+                    return not is_spz_current_for_image(ply, p)
                 if force_all:
                     return True
                 return needs_spz_refresh(ply)
@@ -90,7 +80,7 @@ def scan_jobs(
             if not target.is_file():
                 if force_all:
                     return True
-                return not _spz_is_current(target, p)
+                return not is_spz_current_for_image(target, p)
             if force_all:
                 return True
             return needs_spz_refresh(target)

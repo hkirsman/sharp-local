@@ -374,14 +374,8 @@ def needs_ply_refresh(
     if not ply.is_file():
         # PLY missing — but if SPZ exists and is current vs the image,
         # the work was already done (PLY was removed after SPZ export).
-        if require_spz:
-            spz_path = ply.with_suffix(".spz")
-            if spz_path.is_file():
-                try:
-                    if spz_path.stat().st_mtime >= image_path.stat().st_mtime:
-                        return False
-                except OSError:
-                    pass
+        if require_spz and is_spz_current_for_image(ply, image_path):
+            return False
         return True
     try:
         if image_path.stat().st_mtime > ply.stat().st_mtime:
@@ -407,6 +401,17 @@ def needs_spz_refresh(ply_path: Path) -> bool:
         return spz_path.stat().st_mtime < ply_path.stat().st_mtime
     except OSError:
         return True
+
+
+def is_spz_current_for_image(ply_path: Path, image_path: Path) -> bool:
+    """True when ``ply_path`` has an ``.spz`` sidecar current vs ``image_path``."""
+    spz_path = ply_path.with_suffix(".spz")
+    if not spz_path.is_file():
+        return False
+    try:
+        return spz_path.stat().st_mtime >= image_path.stat().st_mtime
+    except OSError:
+        return False
 
 
 @dataclass
@@ -547,22 +552,16 @@ def _skip_if_spz_current(
     image_path: Path, ply_path: Path
 ) -> Optional[PlySidecarResult]:
     """Return a skipped result if a current .spz exists for a missing PLY, else None."""
-    spz_target = ply_path.with_suffix(".spz")
-    if not spz_target.is_file():
+    if not is_spz_current_for_image(ply_path, image_path):
         return None
-    try:
-        if spz_target.stat().st_mtime >= image_path.stat().st_mtime:
-            return PlySidecarResult(
-                ok=True,
-                image_path=image_path,
-                ply_path=ply_path,
-                message="Skipped (SPZ up to date, PLY previously removed)",
-                skipped=True,
-                spz_path=spz_target,
-            )
-    except OSError:
-        pass
-    return None
+    return PlySidecarResult(
+        ok=True,
+        image_path=image_path,
+        ply_path=ply_path,
+        message="Skipped (SPZ up to date, PLY previously removed)",
+        skipped=True,
+        spz_path=ply_path.with_suffix(".spz"),
+    )
 
 
 def update_ply_sidecar(
