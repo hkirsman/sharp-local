@@ -39,11 +39,12 @@ def scan_jobs(
     When ``export_spz`` is set, files whose PLY is current but ``.spz`` sidecar
     is missing are still queued so the worker can top up the SPZ.
 
-    When ``spz_only`` is set (requires ``export_spz``), images **without** a
-    target PLY are still queued so the worker can run the full SHARP pipeline
-    once.  Images that already have a PLY are queued when ``.spz`` is missing,
-    stale vs that PLY, or when ``force_all`` is set.  The worker then converts
-    PLY → SPZ without SHARP only when the PLY already exists.
+    When ``spz_only`` is set (requires ``export_spz``), images without a
+    target PLY are queued only when no current ``.spz`` sidecar exists (or
+    when ``force_all`` is set).  Images that already have a PLY are queued
+    when ``.spz`` is missing, stale vs that PLY, or when ``force_all`` is
+    set.  The worker converts PLY → SPZ without SHARP only when the PLY
+    already exists.
 
     Returns ``(jobs, total_supported_images)`` where *total_supported_images* is the
     count of supported files found before the PLY-freshness filter — useful to tell

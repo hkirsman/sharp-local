@@ -586,9 +586,10 @@ def update_ply_sidecar(
     When ``spz_only`` is set (with ``export_spz``) and a PLY already exists at
     the target path, SHARP is not run: optional ``limit_splats`` /
     ``max_splats`` runs ``decimate_ply_splat_transform`` on that file, then
-    ``export_ply_to_spz``.  If there is **no** PLY yet, this falls back to the
-    full :func:`process_image_to_sidecar_ply` pipeline (inference, optional
-    decimate, SPZ) so a first-time folder still works.
+    ``export_ply_to_spz``.  If there is **no** PLY yet but a current ``.spz``
+    sidecar exists (e.g. PLY was removed after a previous export), the file is
+    skipped when ``skip_up_to_date`` is set.  Otherwise this falls back to the
+    full :func:`process_image_to_sidecar_ply` pipeline.
 
     When ``remove_ply_after_spz`` is set, the target ``.ply`` is deleted after a
     successful ``.spz`` write (batch use; keeps disk usage down).
