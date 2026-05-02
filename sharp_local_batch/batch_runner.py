@@ -24,6 +24,17 @@ from sharp_local_batch.core import (
 )
 
 
+def _spz_is_current(ply_path: Path, image_path: Path) -> bool:
+    """True when PLY is absent but its .spz sidecar exists and is current vs the image."""
+    spz = ply_path.with_suffix(".spz")
+    if not spz.is_file():
+        return False
+    try:
+        return spz.stat().st_mtime >= image_path.stat().st_mtime
+    except OSError:
+        return False
+
+
 def scan_jobs(
     root: Path,
     recursive: bool,
@@ -60,16 +71,9 @@ def scan_jobs(
             def _spz_only_need(p: Path) -> bool:
                 ply = sidecar_ply_path(p)
                 if not ply.is_file():
-                    # PLY missing — check if SPZ already exists and is current
-                    # (PLY may have been removed after a previous SPZ export).
-                    spz = ply.with_suffix(".spz")
-                    if spz.is_file():
-                        try:
-                            if spz.stat().st_mtime >= p.stat().st_mtime:
-                                return False
-                        except OSError:
-                            pass
-                    return True
+                    if force_all:
+                        return True
+                    return not _spz_is_current(ply, p)
                 if force_all:
                     return True
                 return needs_spz_refresh(ply)
@@ -84,15 +88,9 @@ def scan_jobs(
             except ValueError:
                 return True
             if not target.is_file():
-                # PLY missing — check if SPZ already exists and is current.
-                spz = target.with_suffix(".spz")
-                if spz.is_file():
-                    try:
-                        if spz.stat().st_mtime >= p.stat().st_mtime:
-                            return False
-                    except OSError:
-                        pass
-                return True
+                if force_all:
+                    return True
+                return not _spz_is_current(target, p)
             if force_all:
                 return True
             return needs_spz_refresh(target)
