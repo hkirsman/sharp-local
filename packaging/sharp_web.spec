@@ -37,6 +37,7 @@ for pkg in ("flask", "werkzeug", "jinja2"):
 hiddenimports = collect_submodules("sharp") + [
     "app",
     "sharp_local_batch",
+    "sharp_local_batch._version",
     "sharp_local_batch.core",
     "sharp_local_batch.logging_config",
     "plyfile",

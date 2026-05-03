@@ -48,7 +48,9 @@ class _Bridge(QObject):
 class SharpBatchQtWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("sharp_local_batch")
+        from sharp_local_batch._version import __version__
+
+        self.setWindowTitle(f"Sharp Local batch {__version__}")
         self.resize(720, 540)
 
         self._job_q: queue.Queue[Path] = queue.Queue()

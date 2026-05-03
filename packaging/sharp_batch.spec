@@ -36,6 +36,7 @@ hiddenimports = (
     collect_submodules("sharp")
     + [
         "sharp_local_batch",
+        "sharp_local_batch._version",
         "sharp_local_batch.core",
         "sharp_local_batch.batch_runner",
         "sharp_local_batch.gui_qt",

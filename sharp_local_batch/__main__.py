@@ -20,8 +20,15 @@ from sharp_local_batch.core import (
 
 
 def _cli_main() -> int:
+    from sharp_local_batch._version import __version__
+
     p = argparse.ArgumentParser(
         description="SHARP batch: PLY beside each image, or under --output-root when mirroring.",
+    )
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     p.add_argument(
         "--folder",
@@ -208,6 +215,11 @@ def _is_expected_missing_qt(exc: ImportError) -> bool:
 
 
 def main() -> None:
+    if len(sys.argv) == 2 and sys.argv[1] in ("--version", "-V"):
+        from sharp_local_batch._version import __version__
+
+        print(f"sharp-local-batch {__version__}")
+        raise SystemExit(0)
     if len(sys.argv) >= 2 and sys.argv[1] == "--cli":
         sys.argv.pop(1)
         raise SystemExit(_cli_main())

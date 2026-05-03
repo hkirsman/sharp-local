@@ -29,12 +29,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
 from sharp_local_batch.logging_config import ensure_stderr_info_logging
 
 ensure_stderr_info_logging()
 
+from sharp_local_batch._version import __version__ as SHARP_LOCAL_VERSION
 from sharp_local_batch.core import (
     ML_SHARP_SRC,
     PREDICT_LOCK,
@@ -151,7 +152,11 @@ def favicon() -> Any:
 
 @app.route("/")
 def index() -> Any:
-    return send_from_directory(STATIC_DIR, "index.html")
+    """Serve ``index.html`` with title and heading tied to ``SHARP_LOCAL_VERSION``."""
+    path = STATIC_DIR / "index.html"
+    branding = f"Sharp Local web {SHARP_LOCAL_VERSION}"
+    body = path.read_text(encoding="utf-8").replace("__SHARP_LOCAL_WEB_TITLE__", branding)
+    return Response(body, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/api/health")
@@ -160,6 +165,8 @@ def health() -> Any:
     return jsonify(
         {
             "ok": True,
+            "app": "sharp-local-web",
+            "version": SHARP_LOCAL_VERSION,
             "ml_sharp_path": str(ML_SHARP_SRC),
             "ml_sharp_present": ok,
             "model_loaded": predictor_loaded(),
