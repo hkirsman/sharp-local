@@ -372,6 +372,10 @@ def needs_ply_refresh(
     """True if the PLY (and optionally the .spz sidecar) needs (re)generating."""
     ply = sidecar_ply_path(image_path) if ply_path is None else ply_path
     if not ply.is_file():
+        # PLY missing — but if SPZ exists and is current vs the image,
+        # the work was already done (PLY was removed after SPZ export).
+        if require_spz and is_spz_current_for_image(ply, image_path):
+            return False
         return True
     try:
         if image_path.stat().st_mtime > ply.stat().st_mtime:
@@ -397,6 +401,17 @@ def needs_spz_refresh(ply_path: Path) -> bool:
         return spz_path.stat().st_mtime < ply_path.stat().st_mtime
     except OSError:
         return True
+
+
+def is_spz_current_for_image(ply_path: Path, image_path: Path) -> bool:
+    """True when ``ply_path`` has an ``.spz`` sidecar current vs ``image_path``."""
+    spz_path = ply_path.with_suffix(".spz")
+    if not spz_path.is_file():
+        return False
+    try:
+        return spz_path.stat().st_mtime >= image_path.stat().st_mtime
+    except OSError:
+        return False
 
 
 @dataclass
@@ -533,6 +548,22 @@ def process_image_to_sidecar_ply(
     )
 
 
+def _skip_if_spz_current(
+    image_path: Path, ply_path: Path
+) -> Optional[PlySidecarResult]:
+    """Return a skipped result if a current .spz exists for a missing PLY, else None."""
+    if not is_spz_current_for_image(ply_path, image_path):
+        return None
+    return PlySidecarResult(
+        ok=True,
+        image_path=image_path,
+        ply_path=ply_path,
+        message="Skipped (SPZ up to date, PLY previously removed)",
+        skipped=True,
+        spz_path=ply_path.with_suffix(".spz"),
+    )
+
+
 def update_ply_sidecar(
     image_path: Path,
     *,
@@ -549,15 +580,17 @@ def update_ply_sidecar(
     When ``skip_up_to_date`` is set and the PLY is already current, this
     avoids re-running inference: if ``export_spz`` is on but the ``.spz``
     sidecar is missing, only the SPZ conversion runs against the existing
-    PLY; otherwise the file is reported as skipped.  In all other cases the
-    full :func:`process_image_to_sidecar_ply` pipeline runs.
+    PLY; otherwise the file is reported as skipped.  When the PLY is missing
+    but a current ``.spz`` sidecar exists (e.g. PLY was removed after a
+    previous export), the file is also skipped — in both normal and
+    ``spz_only`` modes.  In all other cases the full
+    :func:`process_image_to_sidecar_ply` pipeline runs.
 
     When ``spz_only`` is set (with ``export_spz``) and a PLY already exists at
     the target path, SHARP is not run: optional ``limit_splats`` /
     ``max_splats`` runs ``decimate_ply_splat_transform`` on that file, then
-    ``export_ply_to_spz``.  If there is **no** PLY yet, this falls back to the
-    full :func:`process_image_to_sidecar_ply` pipeline (inference, optional
-    decimate, SPZ) so a first-time folder still works.
+    ``export_ply_to_spz``.  If there is **no** PLY and no current ``.spz``,
+    this falls back to the full pipeline.
 
     When ``remove_ply_after_spz`` is set, the target ``.ply`` is deleted after a
     successful ``.spz`` write (batch use; keeps disk usage down).
@@ -578,6 +611,10 @@ def update_ply_sidecar(
                 message="SPZ-only mode requires Export SPZ to be enabled",
             )
         if not ply_path.is_file():
+            if skip_up_to_date:
+                skipped = _skip_if_spz_current(image_path, ply_path)
+                if skipped is not None:
+                    return skipped
             return process_image_to_sidecar_ply(
                 image_path,
                 limit_splats=limit_splats,
@@ -684,6 +721,11 @@ def update_ply_sidecar(
             decimate_error=decimate_error,
             spz_error=err,
         )
+
+    if skip_up_to_date and not ply_path.is_file() and export_spz:
+        skipped = _skip_if_spz_current(image_path, ply_path)
+        if skipped is not None:
+            return skipped
 
     if skip_up_to_date and ply_path.is_file():
         try:
