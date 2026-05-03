@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,9 +47,42 @@ from sharp_local_batch.core import (
     predictor_loaded,
 )
 
-EXPERIMENT_ROOT = Path(__file__).resolve().parent
-OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
-STATIC_DIR = EXPERIMENT_ROOT / "static"
+def _dev_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _bundle_root() -> Path:
+    """PyInstaller extract dir when frozen; repo root in development."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return _dev_root()
+
+
+def _outputs_dir() -> Path:
+    """Scene PLY/SPZ under repo ``outputs/`` in dev; user-writable dir when frozen."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        if sys.platform == "win32":
+            local = os.environ.get("LOCALAPPDATA")
+            if local:
+                return Path(local) / "SharpLocal" / "outputs"
+            return Path.home() / "AppData" / "Local" / "SharpLocal" / "outputs"
+        if sys.platform == "darwin":
+            return (
+                Path.home()
+                / "Library"
+                / "Application Support"
+                / "SharpLocal"
+                / "outputs"
+            )
+        xdg = os.environ.get("XDG_DATA_HOME")
+        if xdg:
+            return Path(xdg) / "sharp-local" / "outputs"
+        return Path.home() / ".local" / "share" / "sharp-local" / "outputs"
+    return _dev_root() / "outputs"
+
+
+STATIC_DIR = _bundle_root() / "static"
+OUTPUTS_DIR = _outputs_dir()
 
 
 def _configure_logger(name: str) -> logging.Logger:

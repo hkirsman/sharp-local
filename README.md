@@ -98,7 +98,12 @@ In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror**
 
 **Homebrew Python without `_tkinter`:** use **PySide6-Essentials** from requirements; or `brew install python-tk@3.14` (match your Python minor) and recreate `.venv`; or use `--cli`.
 
-**Standalone build (PyInstaller):** with the repo venv active and `ml-sharp` present, run `pip install pyinstaller` then `pyinstaller packaging/sharp_batch.spec` from the repo root. The bundle is **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless). First inference still downloads the SHARP weights into the user cache unless you ship them separately.
+**Standalone builds (PyInstaller):** with the repo venv active and `ml-sharp` present, install PyInstaller (`pip install pyinstaller`), then from the repo root:
+
+- **Batch tool:** `pyinstaller packaging/sharp_batch.spec` → **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless).
+- **Web UI (Flask):** `pyinstaller packaging/sharp_web.spec` → **`dist/SharpWeb/`**. Run `./dist/SharpWeb/SharpWeb`, then open **http://127.0.0.1:8765**. When frozen, scenes are written under the user data directory (on Windows: `%LOCALAPPDATA%\SharpLocal\outputs\`), not next to the executable.
+
+First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On Windows you can also run **`compile-binaries-win.bat`** from the repo root after the venv is set up (see `docs/windows-setup.md`).
 
 ## Using the UI
 

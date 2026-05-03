@@ -1,6 +1,6 @@
 # Windows development setup
 
-Developer instructions for building and running Sharp Local from source on Windows.
+Developer instructions for building Sharp Local standalone `.exe` bundles on Windows (batch tool and optional web UI). To run from source without PyInstaller, see the main [README](../README.md).
 
 ## Prerequisites
 
@@ -35,46 +35,22 @@ python -m pip install -U pip
 python -m pip install -e ./ml-sharp -r requirements.txt
 ```
 
-## Run from source
+## Build both `.exe` bundles (shortcut)
 
-### Batch tool — GUI
+From the repo root in **Command Prompt**, or by double‑clicking in Explorer:
 
-```powershell
-.venv\Scripts\activate
-python -m sharp_local_batch
-```
+`compile-binaries-win.bat`
 
-### Batch tool — CLI (no GUI needed)
+This installs PyInstaller into `.venv` if needed, then runs `packaging\sharp_batch.spec` and `packaging\sharp_web.spec`. For unattended use (no `pause` at the end), run `compile-binaries-win.bat nopause`.
 
-```powershell
-.venv\Scripts\activate
-python -m sharp_local_batch --cli --folder C:\path\to\photos --recursive
-```
-
-With mirrored output:
-
-```powershell
-python -m sharp_local_batch --cli --folder C:\path\to\photos --recursive ^
-  --output-root C:\path\to\splat_mirror
-```
-
-### Web UI
-
-```powershell
-.venv\Scripts\activate
-python app.py
-```
-
-Then open **http://127.0.0.1:8765** in a browser.
-
-## Build a standalone `.exe`
+## Build standalone batch `.exe`
 
 ```powershell
 .\.venv\Scripts\python -m pip install pyinstaller
 .\.venv\Scripts\pyinstaller packaging/sharp_batch.spec
 ```
 
-Output: `dist\SharpBatch\SharpBatch.exe`
+Output: `dist\SharpBatch\SharpBatch.exe` (with `_internal\` beside it).
 
 Run it directly or pass CLI flags:
 
@@ -83,12 +59,24 @@ dist\SharpBatch\SharpBatch.exe
 dist\SharpBatch\SharpBatch.exe --cli --folder C:\photos --recursive
 ```
 
-To distribute to end users, zip the entire `dist\SharpBatch\` folder — recipients just unzip and run `SharpBatch.exe` (no Python or Git needed on their machine).
+To distribute, zip the entire `dist\SharpBatch\` folder (including `_internal`) — recipients unzip the whole folder and run `SharpBatch.exe` (no Python or Git needed on their machine).
+
+## Build standalone web UI `.exe`
+
+Same venv and dependencies as above, then:
+
+```powershell
+.\.venv\Scripts\pyinstaller packaging/sharp_web.spec
+```
+
+Output: `dist\SharpWeb\SharpWeb.exe`. Run it, then open **http://127.0.0.1:8765** in a browser.
+
+When frozen, generated scenes are stored under `%LOCALAPPDATA%\SharpLocal\outputs\` (not next to the `.exe`). Zip `dist\SharpWeb\` the same way as the batch bundle (include `_internal`).
 
 ## Notes
 
 - The **first inference** downloads the SHARP model checkpoint (~2.6 GB) into the user cache (`%LOCALAPPDATA%\torch\hub\checkpoints\`). Make sure you have internet access and enough disk space.
 - Default PyTorch includes CPU support, which works fine. For GPU acceleration with an NVIDIA card, see <https://pytorch.org/get-started/locally/> to install the CUDA-enabled version instead.
-- The standalone bundle is large (PyTorch + Qt). This is expected.
+- The standalone bundles are large (PyTorch; the batch build also includes Qt). This is expected.
 - If command discovery differs between terminals (for example Cursor terminal vs external PowerShell), run tools with explicit paths like `.\.venv\Scripts\python ...` and `.\.venv\Scripts\pyinstaller ...`.
 - For automated CI builds, see the GitHub Actions example in the main [README](../README.md).
