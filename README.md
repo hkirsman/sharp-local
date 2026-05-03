@@ -103,7 +103,7 @@ In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror**
 - **Batch tool:** `pyinstaller packaging/sharp_batch.spec` → **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless).
 - **Web UI (Flask):** `pyinstaller packaging/sharp_web.spec` → **`dist/SharpWeb/`**. Run `./dist/SharpWeb/SharpWeb`, then open **http://127.0.0.1:8765**. When frozen, scenes are written under the user data directory (on Windows: `%LOCALAPPDATA%\SharpLocal\outputs\`), not next to the executable.
 
-First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On Windows you can also run **`compile-binaries-win.bat`** from the repo root after the venv is set up (see `docs/windows-setup.md`).
+First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On macOS you can also run **`./compile-binaries-mac.sh`** from the repo root after the venv is set up (see `docs/mac-setup.md`). On Windows run **`compile-binaries-win.bat`** (see `docs/windows-setup.md`).
 
 ## Using the UI
 
