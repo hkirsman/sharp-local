@@ -13,6 +13,7 @@ from watchdog.observers import Observer
 from sharp_local_batch.core import (
     PlySidecarResult,
     effective_batch_scan_root,
+    is_spz_current_for_image,
     is_supported_image,
     list_image_paths,
     mirrored_ply_path,
@@ -38,11 +39,12 @@ def scan_jobs(
     When ``export_spz`` is set, files whose PLY is current but ``.spz`` sidecar
     is missing are still queued so the worker can top up the SPZ.
 
-    When ``spz_only`` is set (requires ``export_spz``), images **without** a
-    target PLY are still queued so the worker can run the full SHARP pipeline
-    once.  Images that already have a PLY are queued when ``.spz`` is missing,
-    stale vs that PLY, or when ``force_all`` is set.  The worker then converts
-    PLY → SPZ without SHARP only when the PLY already exists.
+    When ``spz_only`` is set (requires ``export_spz``), images without a
+    target PLY are queued only when no current ``.spz`` sidecar exists (or
+    when ``force_all`` is set).  Images that already have a PLY are queued
+    when ``.spz`` is missing, stale vs that PLY, or when ``force_all`` is
+    set.  The worker converts PLY → SPZ without SHARP only when the PLY
+    already exists.
 
     Returns ``(jobs, total_supported_images)`` where *total_supported_images* is the
     count of supported files found before the PLY-freshness filter — useful to tell
@@ -60,7 +62,9 @@ def scan_jobs(
             def _spz_only_need(p: Path) -> bool:
                 ply = sidecar_ply_path(p)
                 if not ply.is_file():
-                    return True
+                    if force_all:
+                        return True
+                    return not is_spz_current_for_image(ply, p)
                 if force_all:
                     return True
                 return needs_spz_refresh(ply)
@@ -75,7 +79,9 @@ def scan_jobs(
             except ValueError:
                 return True
             if not target.is_file():
-                return True
+                if force_all:
+                    return True
+                return not is_spz_current_for_image(target, p)
             if force_all:
                 return True
             return needs_spz_refresh(target)
