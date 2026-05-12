@@ -5,6 +5,7 @@ const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
 const previewImg = document.getElementById("previewImg");
 const btnGenerate = document.getElementById("btnGenerate");
+const statusWrap = document.getElementById("statusWrap");
 const statusBar = document.getElementById("statusBar");
 const viewerHost = document.getElementById("viewerHost");
 const viewerPlaceholder = document.getElementById("viewerPlaceholder");
@@ -27,9 +28,15 @@ let viewer = null;
 let currentFile = null;
 
 function setStatus(text, kind = "") {
+  if (!statusBar) return;
   statusBar.textContent = text;
   statusBar.classList.remove("error", "working");
   if (kind) statusBar.classList.add(kind);
+  const busy = kind === "working";
+  if (statusWrap) {
+    statusWrap.classList.toggle("is-busy", busy);
+    statusWrap.setAttribute("aria-busy", busy ? "true" : "false");
+  }
 }
 
 function formatSplatLine(count, full, limited) {
@@ -38,6 +45,15 @@ function formatSplatLine(count, full, limited) {
     return `Splats: ${c} (capped from ${Number(full).toLocaleString()})`;
   }
   return `Splats: ${c}`;
+}
+
+function formatElapsed(sec) {
+  if (sec == null || !Number.isFinite(Number(sec))) return "";
+  const n = Number(sec);
+  if (n < 60) return `${n.toFixed(2)}s`;
+  const m = Math.floor(n / 60);
+  const s = n - m * 60;
+  return `${m}m ${s.toFixed(1)}s`;
 }
 
 function setSplatInfoFromApi(data) {
@@ -49,6 +65,9 @@ function setSplatInfoFromApi(data) {
   );
   if (data.decimate_error) {
     text += ` — ${data.decimate_error}`;
+  }
+  if (data.elapsed_seconds != null && Number.isFinite(Number(data.elapsed_seconds))) {
+    text += ` · ${formatElapsed(data.elapsed_seconds)}`;
   }
   splatInfo.innerHTML = "";
   splatInfo.appendChild(document.createTextNode(text));
@@ -81,6 +100,12 @@ function setSplatInfoFromSelect() {
   );
   if (opt.dataset.decimateError) {
     text += ` — ${opt.dataset.decimateError}`;
+  }
+  if (opt.dataset.elapsedSeconds) {
+    const es = Number(opt.dataset.elapsedSeconds);
+    if (Number.isFinite(es)) {
+      text += ` · ${formatElapsed(es)}`;
+    }
   }
   splatInfo.innerHTML = "";
   splatInfo.appendChild(document.createTextNode(text));
@@ -353,6 +378,9 @@ async function refreshScenes(selectId = null) {
         if (s.splat_count_full != null) opt.dataset.splatCountFull = String(s.splat_count_full);
         if (s.splat_limit_applied) opt.dataset.splatLimited = "1";
         if (s.decimate_error) opt.dataset.decimateError = s.decimate_error;
+        if (s.elapsed_seconds != null && Number.isFinite(Number(s.elapsed_seconds))) {
+          opt.dataset.elapsedSeconds = String(s.elapsed_seconds);
+        }
       }
       if (s.spz_url) opt.dataset.spzUrl = s.spz_url;
       sceneSelect.appendChild(opt);

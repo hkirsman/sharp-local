@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from sharp_local_batch.logging_config import ensure_stderr_info_logging
@@ -13,6 +14,7 @@ ensure_stderr_info_logging()
 from sharp_local_batch.batch_runner import scan_jobs
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     update_ply_sidecar,
@@ -154,6 +156,7 @@ def _cli_main() -> int:
 
     n = len(jobs)
     exit_code = 0
+    batch_t0 = time.perf_counter()
     for i, path in enumerate(jobs, start=1):
         print(f"[{i}/{n}] {path}", flush=True)
         try:
@@ -179,9 +182,19 @@ def _cli_main() -> int:
         tag = "ok" if r.ok else "err"
         if r.skipped:
             tag = "skip"
-        print(f"    {tag}: {r.message}", flush=True)
+        t_note = (
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
+            if r.elapsed_seconds is not None
+            else ""
+        )
+        print(f"    {tag}: {r.message}{t_note}", flush=True)
         if not r.ok and not r.skipped:
             exit_code = 1
+    batch_elapsed = time.perf_counter() - batch_t0
+    print(
+        f"Batch finished: {n} item(s) in {format_elapsed_for_log(batch_elapsed)}.",
+        flush=True,
+    )
     return exit_code
 
 

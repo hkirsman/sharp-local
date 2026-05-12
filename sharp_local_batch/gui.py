@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,7 @@ from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
     default_macos_photos_library_path,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     sidecar_ply_path,
@@ -56,6 +58,7 @@ class SharpBatchGui:
         self._scan_running = False
         self._batch_total = 0
         self._batch_done = 0
+        self._batch_start_time = 0.0
         self._watch: WatchController | None = None
         self._processed_session = 0
 
@@ -191,7 +194,7 @@ class SharpBatchGui:
 
         row4 = ttk.Frame(root_f)
         row4.pack(fill=tk.X, **pad)
-        ttk.Button(row4, text="Scan & queue jobs", command=self._on_scan).pack(
+        ttk.Button(row4, text="Start batch", command=self._on_scan).pack(
             side=tk.LEFT
         )
         ttk.Button(row4, text="Stop", command=self._on_stop).pack(side=tk.LEFT, padx=(8, 0))
@@ -211,22 +214,32 @@ class SharpBatchGui:
         self._progress_label = ttk.Label(row5, text="—")
         self._progress_label.pack(anchor=tk.W, pady=(2, 0))
 
+        hint = (
+            "PLY next to each image when mirror output is off; with mirror on, PLY goes "
+            "under the target folder for mirror. Optional cap uses splat-transform "
+            "(npm i -g @playcanvas/splat-transform)."
+        )
+        foot = ttk.Label(root_f, text=hint, wraplength=560, foreground="#666")
+        foot.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(8, 10))
+
         log_f = ttk.LabelFrame(root_f, text="Log", padding=6)
-        log_f.pack(fill=tk.BOTH, expand=True, **pad)
+        log_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
         self._log = tk.Text(log_f, height=14, wrap=tk.WORD, font=("Courier", 11))
         scroll = ttk.Scrollbar(log_f, command=self._log.yview)
         self._log.configure(yscrollcommand=scroll.set)
         self._log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        hint = (
-            "PLY next to each image when mirror output is off; with mirror on, PLY goes "
-            "under the target folder for mirror. Optional cap uses splat-transform "
-            "(npm i -g @playcanvas/splat-transform)."
-        )
-        ttk.Label(root_f, text=hint, wraplength=620, foreground="#666").pack(
-            fill=tk.X, **pad
-        )
+        def _sync_foot_wrap(_event: tk.Event) -> str | None:
+            try:
+                w = root_f.winfo_width()
+            except tk.TclError:
+                return None
+            if w > 40:
+                foot.configure(wraplength=max(280, w - 36))
+            return None
+
+        root_f.bind("<Configure>", _sync_foot_wrap)
 
     def _sync_limit_widgets(self) -> None:
         on = self._limit_var.get()
@@ -425,9 +438,10 @@ class SharpBatchGui:
         self._scan_running = True
         self._batch_total = len(jobs)
         self._batch_done = 0
+        self._batch_start_time = time.perf_counter()
         self._progress.configure(maximum=self._batch_total, value=0, mode="determinate")
         self._progress_label.config(text=f"Queued {len(jobs)} job(s)…")
-        self._log_line(f"--- Scan: {len(jobs)} job(s) ---")
+        self._log_line(f"--- Batch started: {len(jobs)} job(s) ---")
 
         for p in jobs:
             self._job_q.put(p)
@@ -587,13 +601,18 @@ class SharpBatchGui:
             self._safe_after(0, self._on_job_done, r)
 
     def _on_job_done(self, r: PlySidecarResult) -> None:
+        t_note = (
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
+            if r.elapsed_seconds is not None
+            else ""
+        )
         if r.skipped:
-            self._log_line(f"[skip] {r.image_path.name} — {r.message}")
+            self._log_line(f"[skip] {r.image_path.name} — {r.message}{t_note}")
         elif r.ok:
             self._processed_session += 1
-            self._log_line(f"[ok] {r.image_path.name} — {r.message}")
+            self._log_line(f"[ok] {r.image_path.name} — {r.message}{t_note}")
         else:
-            self._log_line(f"[err] {r.image_path.name} — {r.message}")
+            self._log_line(f"[err] {r.image_path.name} — {r.message}{t_note}")
 
         if self._batch_total > 0:
             self._batch_done += 1
@@ -602,12 +621,21 @@ class SharpBatchGui:
                 text=f"{self._batch_done} / {self._batch_total} files"
             )
             if self._batch_done >= self._batch_total:
+                n_jobs = self._batch_total
+                batch_elapsed = time.perf_counter() - self._batch_start_time
                 self._batch_total = 0
                 self._batch_done = 0
                 self._scan_running = False
                 self._progress.configure(value=0, maximum=100)
                 self._progress_label.config(
-                    text=f"Batch done · session processed: {self._processed_session}"
+                    text=(
+                        f"Batch done in {format_elapsed_for_log(batch_elapsed, decimals=1)} · "
+                        f"session processed: {self._processed_session}"
+                    )
+                )
+                self._log_line(
+                    f"--- Batch finished: {n_jobs} job(s) in "
+                    f"{format_elapsed_for_log(batch_elapsed)} ---"
                 )
 
     def _log_line(self, text: str) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -31,6 +34,7 @@ from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
     default_macos_photos_library_path,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     sidecar_ply_path,
@@ -62,6 +66,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._snap_remove_ply_after_spz = False
         self._batch_total = 0
         self._batch_done = 0
+        self._batch_start_time = 0.0
         self._watch: WatchController | None = None
         self._processed_session = 0
         self._snap_mirror_output: Path | None = None
@@ -177,7 +182,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._sync_remove_ply_widgets()
 
         row4 = QHBoxLayout()
-        scan_btn = QPushButton("Scan & queue jobs")
+        scan_btn = QPushButton("Start batch")
         scan_btn.clicked.connect(self._on_scan)
         row4.addWidget(scan_btn)
         stop_btn = QPushButton("Stop")
@@ -196,12 +201,22 @@ class SharpBatchQtWindow(QMainWindow):
         self._progress_label = QLabel("—")
         layout.addWidget(self._progress_label)
 
-        log_label = QLabel("Log")
-        layout.addWidget(log_label)
+        log_box = QGroupBox("Log")
+        log_layout = QVBoxLayout(log_box)
+        log_layout.setContentsMargins(8, 10, 8, 12)
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
-        layout.addWidget(self._log, stretch=1)
+        self._log.setStyleSheet(
+            "QTextEdit {"
+            "  border: 1px solid #a8a8a8;"
+            "  border-radius: 4px;"
+            "  background-color: #ffffff;"
+            "  padding: 2px;"
+            "}"
+        )
+        log_layout.addWidget(self._log)
+        layout.addWidget(log_box, stretch=1)
 
         hint = (
             "PLY next to each image when mirror output is off; with mirror on, PLY goes "
@@ -211,6 +226,10 @@ class SharpBatchQtWindow(QMainWindow):
         foot = QLabel(hint)
         foot.setWordWrap(True)
         foot.setStyleSheet("color: #666;")
+        foot.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        fm = foot.fontMetrics()
+        foot.setMinimumHeight(fm.height() * 4 + fm.leading() + 4)
+        layout.addSpacing(8)
         layout.addWidget(foot)
 
         threading.Thread(target=self._worker_loop, daemon=True).start()
@@ -427,10 +446,11 @@ class SharpBatchQtWindow(QMainWindow):
         self._snapshot_opts()
         self._batch_total = len(jobs)
         self._batch_done = 0
+        self._batch_start_time = time.perf_counter()
         self._progress.setMaximum(self._batch_total)
         self._progress.setValue(0)
         self._progress_label.setText(f"Queued {len(jobs)} job(s)…")
-        self._log_line(f"--- Scan: {len(jobs)} job(s) ---")
+        self._log_line(f"--- Batch started: {len(jobs)} job(s) ---")
         for p in jobs:
             self._job_q.put(p)
 
@@ -605,13 +625,18 @@ class SharpBatchQtWindow(QMainWindow):
             return
         if not isinstance(r, PlySidecarResult):
             return
+        t_note = (
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
+            if r.elapsed_seconds is not None
+            else ""
+        )
         if r.skipped:
-            self._log_line(f"[skip] {r.image_path.name} — {r.message}")
+            self._log_line(f"[skip] {r.image_path.name} — {r.message}{t_note}")
         elif r.ok:
             self._processed_session += 1
-            self._log_line(f"[ok] {r.image_path.name} — {r.message}")
+            self._log_line(f"[ok] {r.image_path.name} — {r.message}{t_note}")
         else:
-            self._log_line(f"[err] {r.image_path.name} — {r.message}")
+            self._log_line(f"[err] {r.image_path.name} — {r.message}{t_note}")
 
         if self._batch_total > 0:
             self._batch_done += 1
@@ -620,12 +645,21 @@ class SharpBatchQtWindow(QMainWindow):
                 f"{self._batch_done} / {self._batch_total} files"
             )
             if self._batch_done >= self._batch_total:
+                n_jobs = self._batch_total
+                batch_elapsed = time.perf_counter() - self._batch_start_time
                 self._batch_total = 0
                 self._batch_done = 0
                 self._progress.setValue(0)
                 self._progress.setMaximum(100)
                 self._progress_label.setText(
-                    f"Batch done · session processed: {self._processed_session}"
+                    (
+                        f"Batch done in {format_elapsed_for_log(batch_elapsed, decimals=1)} · "
+                        f"session processed: {self._processed_session}"
+                    )
+                )
+                self._log_line(
+                    f"--- Batch finished: {n_jobs} job(s) in "
+                    f"{format_elapsed_for_log(batch_elapsed)} ---"
                 )
 
     def _log_line(self, text: str) -> None:
