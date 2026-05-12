@@ -66,7 +66,12 @@
           >).
         </p>
         <button type="button" class="btn btn-primary" id="btnGenerate" disabled>Generate</button>
-        <div class="status-bar" id="statusBar" role="status">Ready</div>
+        <div class="status-wrap" id="statusWrap" role="group" aria-label="Status" aria-busy="false">
+          <div class="status-inner">
+            <span class="status-spinner" aria-hidden="true"></span>
+            <div class="status-bar" id="statusBar" role="status">Ready</div>
+          </div>
+        </div>
         <p class="hint">Inference runs locally via Python (PyTorch). First run downloads the model.</p>
       </section>
 
