@@ -87,6 +87,20 @@ def get_predictor() -> tuple[Any, str]:
     return _predictor, _device
 
 
+def format_elapsed_for_log(seconds: float, *, decimals: int = 2) -> str:
+    """Wall duration for log lines: ``33.20s``, ``11m 24.83s``, ``1h 0m 5.00s``."""
+    s = max(0.0, float(seconds))
+    if s < 60:
+        return f"{s:.{decimals}f}s"
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    sec_rem = round(s - h * 3600 - m * 60, decimals)
+    frag = f"{sec_rem:.{decimals}f}"
+    if h:
+        return f"{h}h {m}m {frag}s"
+    return f"{m}m {frag}s"
+
+
 def count_ply_vertices(ply_path: Path) -> int:
     """Vertex count from the PLY ASCII header only (no full file decode)."""
     vertex_count: Optional[int] = None

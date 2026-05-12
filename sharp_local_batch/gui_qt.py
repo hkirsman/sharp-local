@@ -34,6 +34,7 @@ from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
     default_macos_photos_library_path,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     sidecar_ply_path,
@@ -181,7 +182,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._sync_remove_ply_widgets()
 
         row4 = QHBoxLayout()
-        scan_btn = QPushButton("Scan & queue jobs")
+        scan_btn = QPushButton("Start batch")
         scan_btn.clicked.connect(self._on_scan)
         row4.addWidget(scan_btn)
         stop_btn = QPushButton("Stop")
@@ -449,7 +450,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._progress.setMaximum(self._batch_total)
         self._progress.setValue(0)
         self._progress_label.setText(f"Queued {len(jobs)} job(s)…")
-        self._log_line(f"--- Scan: {len(jobs)} job(s) ---")
+        self._log_line(f"--- Batch started: {len(jobs)} job(s) ---")
         for p in jobs:
             self._job_q.put(p)
 
@@ -625,7 +626,7 @@ class SharpBatchQtWindow(QMainWindow):
         if not isinstance(r, PlySidecarResult):
             return
         t_note = (
-            f" ({r.elapsed_seconds:.2f}s)"
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
             if r.elapsed_seconds is not None
             else ""
         )
@@ -652,12 +653,13 @@ class SharpBatchQtWindow(QMainWindow):
                 self._progress.setMaximum(100)
                 self._progress_label.setText(
                     (
-                        f"Batch done in {batch_elapsed:.1f}s · "
+                        f"Batch done in {format_elapsed_for_log(batch_elapsed, decimals=1)} · "
                         f"session processed: {self._processed_session}"
                     )
                 )
                 self._log_line(
-                    f"--- Batch finished: {n_jobs} job(s) in {batch_elapsed:.2f}s ---"
+                    f"--- Batch finished: {n_jobs} job(s) in "
+                    f"{format_elapsed_for_log(batch_elapsed)} ---"
                 )
 
     def _log_line(self, text: str) -> None:

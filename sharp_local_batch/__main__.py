@@ -14,6 +14,7 @@ ensure_stderr_info_logging()
 from sharp_local_batch.batch_runner import scan_jobs
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     update_ply_sidecar,
@@ -182,7 +183,7 @@ def _cli_main() -> int:
         if r.skipped:
             tag = "skip"
         t_note = (
-            f" ({r.elapsed_seconds:.2f}s)"
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
             if r.elapsed_seconds is not None
             else ""
         )
@@ -191,7 +192,7 @@ def _cli_main() -> int:
             exit_code = 1
     batch_elapsed = time.perf_counter() - batch_t0
     print(
-        f"Batch finished: {n} item(s) in {batch_elapsed:.2f}s.",
+        f"Batch finished: {n} item(s) in {format_elapsed_for_log(batch_elapsed)}.",
         flush=True,
     )
     return exit_code

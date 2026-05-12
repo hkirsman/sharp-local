@@ -16,6 +16,7 @@ from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
     default_macos_photos_library_path,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     sidecar_ply_path,
@@ -193,7 +194,7 @@ class SharpBatchGui:
 
         row4 = ttk.Frame(root_f)
         row4.pack(fill=tk.X, **pad)
-        ttk.Button(row4, text="Scan & queue jobs", command=self._on_scan).pack(
+        ttk.Button(row4, text="Start batch", command=self._on_scan).pack(
             side=tk.LEFT
         )
         ttk.Button(row4, text="Stop", command=self._on_stop).pack(side=tk.LEFT, padx=(8, 0))
@@ -440,7 +441,7 @@ class SharpBatchGui:
         self._batch_start_time = time.perf_counter()
         self._progress.configure(maximum=self._batch_total, value=0, mode="determinate")
         self._progress_label.config(text=f"Queued {len(jobs)} job(s)…")
-        self._log_line(f"--- Scan: {len(jobs)} job(s) ---")
+        self._log_line(f"--- Batch started: {len(jobs)} job(s) ---")
 
         for p in jobs:
             self._job_q.put(p)
@@ -601,7 +602,7 @@ class SharpBatchGui:
 
     def _on_job_done(self, r: PlySidecarResult) -> None:
         t_note = (
-            f" ({r.elapsed_seconds:.2f}s)"
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
             if r.elapsed_seconds is not None
             else ""
         )
@@ -628,12 +629,13 @@ class SharpBatchGui:
                 self._progress.configure(value=0, maximum=100)
                 self._progress_label.config(
                     text=(
-                        f"Batch done in {batch_elapsed:.1f}s · "
+                        f"Batch done in {format_elapsed_for_log(batch_elapsed, decimals=1)} · "
                         f"session processed: {self._processed_session}"
                     )
                 )
                 self._log_line(
-                    f"--- Batch finished: {n_jobs} job(s) in {batch_elapsed:.2f}s ---"
+                    f"--- Batch finished: {n_jobs} job(s) in "
+                    f"{format_elapsed_for_log(batch_elapsed)} ---"
                 )
 
     def _log_line(self, text: str) -> None:
