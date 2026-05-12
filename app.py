@@ -170,7 +170,7 @@ def list_scenes() -> Any:
             entry["splat_limit_applied"] = True
         if meta.get("decimate_error"):
             entry["decimate_error"] = meta["decimate_error"]
-        if "elapsed_seconds" in meta and isinstance(meta["elapsed_seconds"], (int, float)):
+        if "elapsed_seconds" in meta and type(meta["elapsed_seconds"]) in (int, float):
             entry["elapsed_seconds"] = float(meta["elapsed_seconds"])
         if (d / "splat.spz").is_file():
             entry["spz_url"] = f"/api/scenes/{d.name}/splat.spz"
