@@ -7,11 +7,17 @@ import sys
 import threading
 import time
 import tkinter as tk
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from sharp_local_batch.batch_runner import WatchController, scan_jobs
+from sharp_local_batch.gui_settings import (
+    clear_saved_batch_gui_settings,
+    default_batch_gui_settings,
+    load_batch_gui_settings,
+    save_batch_gui_settings,
+)
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
@@ -68,6 +74,74 @@ class SharpBatchGui:
         self._worker.start()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._apply_persisted_settings(load_batch_gui_settings())
+
+    def _collect_persisted_settings(self) -> dict[str, object]:
+        return {
+            "folder": self._folder_var.get().strip(),
+            "recursive": self._recursive_var.get(),
+            "force_all": self._force_all_var.get(),
+            "limit_splats": self._limit_var.get(),
+            "max_splats": self._max_splats_var.get().strip() or "500000",
+            "skip_up_to_date": self._skip_up_to_date_var.get(),
+            "export_spz": self._spz_var.get(),
+            "spz_only": self._spz_only_var.get(),
+            "remove_ply_after_spz": self._remove_ply_after_spz_var.get(),
+            "mirror": self._mirror_var.get(),
+            "output_mirror": self._output_mirror_var.get().strip(),
+            "use_photos_library": self._photos_lib_var.get(),
+        }
+
+    def _apply_persisted_settings(self, d: Mapping[str, object]) -> None:
+        self._recursive_var.set(bool(d.get("recursive", True)))
+        self._force_all_var.set(bool(d.get("force_all", False)))
+        self._limit_var.set(bool(d.get("limit_splats", False)))
+        self._max_splats_var.set(str(d.get("max_splats", "500000")))
+        self._skip_up_to_date_var.set(bool(d.get("skip_up_to_date", True)))
+        self._spz_var.set(bool(d.get("export_spz", True)))
+        self._spz_only_var.set(bool(d.get("spz_only", False)))
+        self._remove_ply_after_spz_var.set(bool(d.get("remove_ply_after_spz", True)))
+        self._output_mirror_var.set(str(d.get("output_mirror", "")))
+
+        use_pl = bool(d.get("use_photos_library", False)) and sys.platform == "darwin"
+        lib = default_macos_photos_library_path()
+        lib_ok = use_pl and lib.is_dir()
+
+        if lib_ok:
+            self._photos_lib_var.set(True)
+            self._folder_var.set(str(lib))
+            self._mirror_var.set(True)
+            self._mirror_cb.state(["disabled"])
+        else:
+            self._photos_lib_var.set(False)
+            self._mirror_cb.state(["!disabled"])
+            self._folder_var.set(str(d.get("folder", "")))
+            self._mirror_var.set(bool(d.get("mirror", False)))
+
+        self._sync_force_skip_widgets()
+        self._sync_limit_widgets()
+        self._on_spz_only_toggle()
+        self._sync_remove_ply_widgets()
+        self._sync_mirror_widgets()
+
+    # save_batch_gui_settings removes gui_settings.json when merged values match defaults.
+    def _persist_gui_settings(self) -> None:
+        try:
+            save_batch_gui_settings(self._collect_persisted_settings())
+        except OSError:
+            pass
+
+    def _on_reset_settings(self) -> None:
+        if not messagebox.askyesno(
+            "Reset settings",
+            "Restore all options to defaults and forget saved preferences?",
+            default=messagebox.NO,
+        ):
+            return
+        clear_saved_batch_gui_settings()
+        self._apply_persisted_settings(default_batch_gui_settings())
+        self._log_line("--- Settings reset to defaults (saved preferences cleared) ---")
 
     def _build_ui(self) -> None:
         pad = {"padx": 10, "pady": 4}
@@ -198,6 +272,9 @@ class SharpBatchGui:
             side=tk.LEFT
         )
         ttk.Button(row4, text="Stop", command=self._on_stop).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(row4, text="Reset settings", command=self._on_reset_settings).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
         self._watch_cb = ttk.Checkbutton(
             row4,
             text="Watch folder (new / changed images)",
@@ -650,6 +727,7 @@ class SharpBatchGui:
             pass
 
     def _on_close(self) -> None:
+        self._persist_gui_settings()
         self._stop_watch()
         self._quit_app.set()
         self.root.destroy()
