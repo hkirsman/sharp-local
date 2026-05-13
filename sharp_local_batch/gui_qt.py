@@ -5,7 +5,9 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
+from typing import Mapping
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,16 +24,24 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from sharp_local_batch.batch_runner import WatchController, scan_jobs
+from sharp_local_batch.gui_settings import (
+    clear_saved_batch_gui_settings,
+    default_batch_gui_settings,
+    load_batch_gui_settings,
+    save_batch_gui_settings,
+)
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
     default_macos_photos_library_path,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     sidecar_ply_path,
@@ -64,6 +75,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._snap_remove_ply_after_spz = False
         self._batch_total = 0
         self._batch_done = 0
+        self._batch_start_time = 0.0
         self._watch: WatchController | None = None
         self._processed_session = 0
         self._snap_mirror_output: Path | None = None
@@ -179,12 +191,16 @@ class SharpBatchQtWindow(QMainWindow):
         self._sync_remove_ply_widgets()
 
         row4 = QHBoxLayout()
-        scan_btn = QPushButton("Scan & queue jobs")
+        scan_btn = QPushButton("Start batch")
         scan_btn.clicked.connect(self._on_scan)
         row4.addWidget(scan_btn)
         stop_btn = QPushButton("Stop")
         stop_btn.clicked.connect(self._on_stop)
         row4.addWidget(stop_btn)
+        reset_btn = QPushButton("Reset settings")
+        reset_btn.setToolTip("Restore defaults and clear saved preferences for next launch.")
+        reset_btn.clicked.connect(self._on_reset_settings)
+        row4.addWidget(reset_btn)
         self._watch_chk = QCheckBox("Watch folder (new / changed images)")
         self._watch_chk.toggled.connect(self._on_watch_toggled)
         row4.addWidget(self._watch_chk)
@@ -198,12 +214,22 @@ class SharpBatchQtWindow(QMainWindow):
         self._progress_label = QLabel("—")
         layout.addWidget(self._progress_label)
 
-        log_label = QLabel("Log")
-        layout.addWidget(log_label)
+        log_box = QGroupBox("Log")
+        log_layout = QVBoxLayout(log_box)
+        log_layout.setContentsMargins(8, 10, 8, 12)
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
-        layout.addWidget(self._log, stretch=1)
+        self._log.setStyleSheet(
+            "QTextEdit {"
+            "  border: 1px solid #a8a8a8;"
+            "  border-radius: 4px;"
+            "  background-color: #ffffff;"
+            "  padding: 2px;"
+            "}"
+        )
+        log_layout.addWidget(self._log)
+        layout.addWidget(log_box, stretch=1)
 
         hint = (
             "PLY next to each image when mirror output is off; with mirror on, PLY goes "
@@ -213,9 +239,89 @@ class SharpBatchQtWindow(QMainWindow):
         foot = QLabel(hint)
         foot.setWordWrap(True)
         foot.setStyleSheet("color: #666;")
+        foot.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        fm = foot.fontMetrics()
+        foot.setMinimumHeight(fm.height() * 4 + fm.leading() + 4)
+        layout.addSpacing(8)
         layout.addWidget(foot)
 
         threading.Thread(target=self._worker_loop, daemon=True).start()
+
+        self._apply_persisted_settings(load_batch_gui_settings())
+
+    def _collect_persisted_settings(self) -> dict[str, object]:
+        use_pl = (
+            bool(self._photos_lib_chk.isChecked())
+            if self._photos_lib_chk is not None
+            else False
+        )
+        return {
+            "folder": self._folder_edit.text().strip(),
+            "recursive": self._recursive_chk.isChecked(),
+            "force_all": self._force_all_chk.isChecked(),
+            "limit_splats": self._limit_chk.isChecked(),
+            "max_splats": self._max_edit.text().strip() or "500000",
+            "skip_up_to_date": self._skip_chk.isChecked(),
+            "export_spz": self._spz_chk.isChecked(),
+            "spz_only": self._spz_only_chk.isChecked(),
+            "remove_ply_after_spz": self._remove_ply_chk.isChecked(),
+            "mirror": self._mirror_chk.isChecked(),
+            "output_mirror": self._output_mirror_edit.text().strip(),
+            "use_photos_library": use_pl,
+        }
+
+    def _apply_persisted_settings(self, d: Mapping[str, object]) -> None:
+        self._recursive_chk.setChecked(bool(d.get("recursive", True)))
+        self._force_all_chk.setChecked(bool(d.get("force_all", False)))
+        self._limit_chk.setChecked(bool(d.get("limit_splats", False)))
+        self._max_edit.setText(str(d.get("max_splats", "500000")))
+        self._skip_chk.setChecked(bool(d.get("skip_up_to_date", True)))
+        self._spz_chk.setChecked(bool(d.get("export_spz", True)))
+        self._spz_only_chk.setChecked(bool(d.get("spz_only", False)))
+        self._remove_ply_chk.setChecked(bool(d.get("remove_ply_after_spz", True)))
+        self._output_mirror_edit.setText(str(d.get("output_mirror", "")))
+
+        use_pl = bool(d.get("use_photos_library", False)) and sys.platform == "darwin"
+        lib_ok = False
+        if use_pl and self._photos_lib_chk is not None:
+            lib = default_macos_photos_library_path()
+            lib_ok = lib.is_dir()
+
+        if use_pl and lib_ok and self._photos_lib_chk is not None:
+            self._photos_lib_chk.setChecked(True)
+        else:
+            if self._photos_lib_chk is not None:
+                self._photos_lib_chk.setChecked(False)
+            self._folder_edit.setText(str(d.get("folder", "")))
+            self._mirror_chk.setChecked(bool(d.get("mirror", False)))
+
+        self._sync_force_skip_widgets(False)
+        self._sync_limit_widgets()
+        self._on_spz_only_toggled(self._spz_only_chk.isChecked())
+        self._sync_remove_ply_widgets()
+        self._sync_mirror_widgets(self._mirror_chk.isChecked())
+
+    # save_batch_gui_settings removes gui_settings.json when merged values match defaults.
+    def _persist_gui_settings(self) -> None:
+        try:
+            save_batch_gui_settings(self._collect_persisted_settings())
+        except OSError:
+            pass
+
+    @Slot()
+    def _on_reset_settings(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Reset settings",
+            "Restore all options to defaults and forget saved preferences?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        clear_saved_batch_gui_settings()
+        self._apply_persisted_settings(default_batch_gui_settings())
+        self._log_line("--- Settings reset to defaults (saved preferences cleared) ---")
 
     def _sync_limit_widgets(self) -> None:
         self._max_edit.setEnabled(self._limit_chk.isChecked())
@@ -429,10 +535,11 @@ class SharpBatchQtWindow(QMainWindow):
         self._snapshot_opts()
         self._batch_total = len(jobs)
         self._batch_done = 0
+        self._batch_start_time = time.perf_counter()
         self._progress.setMaximum(self._batch_total)
         self._progress.setValue(0)
         self._progress_label.setText(f"Queued {len(jobs)} job(s)…")
-        self._log_line(f"--- Scan: {len(jobs)} job(s) ---")
+        self._log_line(f"--- Batch started: {len(jobs)} job(s) ---")
         for p in jobs:
             self._job_q.put(p)
 
@@ -607,13 +714,18 @@ class SharpBatchQtWindow(QMainWindow):
             return
         if not isinstance(r, PlySidecarResult):
             return
+        t_note = (
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
+            if r.elapsed_seconds is not None
+            else ""
+        )
         if r.skipped:
-            self._log_line(f"[skip] {r.image_path.name} — {r.message}")
+            self._log_line(f"[skip] {r.image_path.name} — {r.message}{t_note}")
         elif r.ok:
             self._processed_session += 1
-            self._log_line(f"[ok] {r.image_path.name} — {r.message}")
+            self._log_line(f"[ok] {r.image_path.name} — {r.message}{t_note}")
         else:
-            self._log_line(f"[err] {r.image_path.name} — {r.message}")
+            self._log_line(f"[err] {r.image_path.name} — {r.message}{t_note}")
 
         if self._batch_total > 0:
             self._batch_done += 1
@@ -622,18 +734,28 @@ class SharpBatchQtWindow(QMainWindow):
                 f"{self._batch_done} / {self._batch_total} files"
             )
             if self._batch_done >= self._batch_total:
+                n_jobs = self._batch_total
+                batch_elapsed = time.perf_counter() - self._batch_start_time
                 self._batch_total = 0
                 self._batch_done = 0
                 self._progress.setValue(0)
                 self._progress.setMaximum(100)
                 self._progress_label.setText(
-                    f"Batch done · session processed: {self._processed_session}"
+                    (
+                        f"Batch done in {format_elapsed_for_log(batch_elapsed, decimals=1)} · "
+                        f"session processed: {self._processed_session}"
+                    )
+                )
+                self._log_line(
+                    f"--- Batch finished: {n_jobs} job(s) in "
+                    f"{format_elapsed_for_log(batch_elapsed)} ---"
                 )
 
     def _log_line(self, text: str) -> None:
         self._log.append(text)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._persist_gui_settings()
         self._stop_watch()
         self._quit_app.set()
         event.accept()

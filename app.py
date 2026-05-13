@@ -24,6 +24,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -211,6 +212,8 @@ def list_scenes() -> Any:
             entry["splat_limit_applied"] = True
         if meta.get("decimate_error"):
             entry["decimate_error"] = meta["decimate_error"]
+        if "elapsed_seconds" in meta and type(meta["elapsed_seconds"]) in (int, float):
+            entry["elapsed_seconds"] = float(meta["elapsed_seconds"])
         if (d / "splat.spz").is_file():
             entry["spz_url"] = f"/api/scenes/{d.name}/splat.spz"
         scenes.append(entry)
@@ -274,6 +277,7 @@ def generate() -> Any:
 
     import torch
 
+    t0 = time.perf_counter()
     try:
         with PREDICT_LOCK:
             predictor, device_str = get_predictor()
@@ -310,6 +314,8 @@ def generate() -> Any:
     spz_path = scene_dir / "splat.spz"
     has_spz = export_ply_to_spz(ply_path, spz_path) if do_spz else False
 
+    elapsed_seconds = round(time.perf_counter() - t0, 3)
+
     meta = {
         "id": scene_id,
         "original_name": upload.filename,
@@ -320,6 +326,7 @@ def generate() -> Any:
         "splat_count": splat_count,
         "splat_count_full": splat_count_full,
         "splat_limit_applied": limit_applied,
+        "elapsed_seconds": elapsed_seconds,
     }
     if decimate_error:
         meta["decimate_error"] = decimate_error
@@ -332,6 +339,7 @@ def generate() -> Any:
         "splat_count": splat_count,
         "splat_count_full": splat_count_full,
         "splat_limit_applied": limit_applied,
+        "elapsed_seconds": elapsed_seconds,
     }
     if decimate_error:
         payload["decimate_error"] = decimate_error

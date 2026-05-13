@@ -5,16 +5,24 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from sharp_local_batch.batch_runner import WatchController, scan_jobs
+from sharp_local_batch.gui_settings import (
+    clear_saved_batch_gui_settings,
+    default_batch_gui_settings,
+    load_batch_gui_settings,
+    save_batch_gui_settings,
+)
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
     default_macos_photos_library_path,
+    format_elapsed_for_log,
     is_photos_library_bundle,
     output_ply_path_for_job,
     sidecar_ply_path,
@@ -58,6 +66,7 @@ class SharpBatchGui:
         self._scan_running = False
         self._batch_total = 0
         self._batch_done = 0
+        self._batch_start_time = 0.0
         self._watch: WatchController | None = None
         self._processed_session = 0
 
@@ -67,6 +76,74 @@ class SharpBatchGui:
         self._worker.start()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._apply_persisted_settings(load_batch_gui_settings())
+
+    def _collect_persisted_settings(self) -> dict[str, object]:
+        return {
+            "folder": self._folder_var.get().strip(),
+            "recursive": self._recursive_var.get(),
+            "force_all": self._force_all_var.get(),
+            "limit_splats": self._limit_var.get(),
+            "max_splats": self._max_splats_var.get().strip() or "500000",
+            "skip_up_to_date": self._skip_up_to_date_var.get(),
+            "export_spz": self._spz_var.get(),
+            "spz_only": self._spz_only_var.get(),
+            "remove_ply_after_spz": self._remove_ply_after_spz_var.get(),
+            "mirror": self._mirror_var.get(),
+            "output_mirror": self._output_mirror_var.get().strip(),
+            "use_photos_library": self._photos_lib_var.get(),
+        }
+
+    def _apply_persisted_settings(self, d: Mapping[str, object]) -> None:
+        self._recursive_var.set(bool(d.get("recursive", True)))
+        self._force_all_var.set(bool(d.get("force_all", False)))
+        self._limit_var.set(bool(d.get("limit_splats", False)))
+        self._max_splats_var.set(str(d.get("max_splats", "500000")))
+        self._skip_up_to_date_var.set(bool(d.get("skip_up_to_date", True)))
+        self._spz_var.set(bool(d.get("export_spz", True)))
+        self._spz_only_var.set(bool(d.get("spz_only", False)))
+        self._remove_ply_after_spz_var.set(bool(d.get("remove_ply_after_spz", True)))
+        self._output_mirror_var.set(str(d.get("output_mirror", "")))
+
+        use_pl = bool(d.get("use_photos_library", False)) and sys.platform == "darwin"
+        lib = default_macos_photos_library_path()
+        lib_ok = use_pl and lib.is_dir()
+
+        if lib_ok:
+            self._photos_lib_var.set(True)
+            self._folder_var.set(str(lib))
+            self._mirror_var.set(True)
+            self._mirror_cb.state(["disabled"])
+        else:
+            self._photos_lib_var.set(False)
+            self._mirror_cb.state(["!disabled"])
+            self._folder_var.set(str(d.get("folder", "")))
+            self._mirror_var.set(bool(d.get("mirror", False)))
+
+        self._sync_force_skip_widgets()
+        self._sync_limit_widgets()
+        self._on_spz_only_toggle()
+        self._sync_remove_ply_widgets()
+        self._sync_mirror_widgets()
+
+    # save_batch_gui_settings removes gui_settings.json when merged values match defaults.
+    def _persist_gui_settings(self) -> None:
+        try:
+            save_batch_gui_settings(self._collect_persisted_settings())
+        except OSError:
+            pass
+
+    def _on_reset_settings(self) -> None:
+        if not messagebox.askyesno(
+            "Reset settings",
+            "Restore all options to defaults and forget saved preferences?",
+            default=messagebox.NO,
+        ):
+            return
+        clear_saved_batch_gui_settings()
+        self._apply_persisted_settings(default_batch_gui_settings())
+        self._log_line("--- Settings reset to defaults (saved preferences cleared) ---")
 
     def _build_ui(self) -> None:
         pad = {"padx": 10, "pady": 4}
@@ -193,10 +270,13 @@ class SharpBatchGui:
 
         row4 = ttk.Frame(root_f)
         row4.pack(fill=tk.X, **pad)
-        ttk.Button(row4, text="Scan & queue jobs", command=self._on_scan).pack(
+        ttk.Button(row4, text="Start batch", command=self._on_scan).pack(
             side=tk.LEFT
         )
         ttk.Button(row4, text="Stop", command=self._on_stop).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(row4, text="Reset settings", command=self._on_reset_settings).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
         self._watch_cb = ttk.Checkbutton(
             row4,
             text="Watch folder (new / changed images)",
@@ -213,22 +293,32 @@ class SharpBatchGui:
         self._progress_label = ttk.Label(row5, text="—")
         self._progress_label.pack(anchor=tk.W, pady=(2, 0))
 
+        hint = (
+            "PLY next to each image when mirror output is off; with mirror on, PLY goes "
+            "under the target folder for mirror. Optional cap uses splat-transform "
+            "(npm i -g @playcanvas/splat-transform)."
+        )
+        foot = ttk.Label(root_f, text=hint, wraplength=560, foreground="#666")
+        foot.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(8, 10))
+
         log_f = ttk.LabelFrame(root_f, text="Log", padding=6)
-        log_f.pack(fill=tk.BOTH, expand=True, **pad)
+        log_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
         self._log = tk.Text(log_f, height=14, wrap=tk.WORD, font=("Courier", 11))
         scroll = ttk.Scrollbar(log_f, command=self._log.yview)
         self._log.configure(yscrollcommand=scroll.set)
         self._log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        hint = (
-            "PLY next to each image when mirror output is off; with mirror on, PLY goes "
-            "under the target folder for mirror. Optional cap uses splat-transform "
-            "(npm i -g @playcanvas/splat-transform)."
-        )
-        ttk.Label(root_f, text=hint, wraplength=620, foreground="#666").pack(
-            fill=tk.X, **pad
-        )
+        def _sync_foot_wrap(_event: tk.Event) -> str | None:
+            try:
+                w = root_f.winfo_width()
+            except tk.TclError:
+                return None
+            if w > 40:
+                foot.configure(wraplength=max(280, w - 36))
+            return None
+
+        root_f.bind("<Configure>", _sync_foot_wrap)
 
     def _sync_limit_widgets(self) -> None:
         on = self._limit_var.get()
@@ -427,9 +517,10 @@ class SharpBatchGui:
         self._scan_running = True
         self._batch_total = len(jobs)
         self._batch_done = 0
+        self._batch_start_time = time.perf_counter()
         self._progress.configure(maximum=self._batch_total, value=0, mode="determinate")
         self._progress_label.config(text=f"Queued {len(jobs)} job(s)…")
-        self._log_line(f"--- Scan: {len(jobs)} job(s) ---")
+        self._log_line(f"--- Batch started: {len(jobs)} job(s) ---")
 
         for p in jobs:
             self._job_q.put(p)
@@ -589,13 +680,18 @@ class SharpBatchGui:
             self._safe_after(0, self._on_job_done, r)
 
     def _on_job_done(self, r: PlySidecarResult) -> None:
+        t_note = (
+            f" ({format_elapsed_for_log(r.elapsed_seconds)})"
+            if r.elapsed_seconds is not None
+            else ""
+        )
         if r.skipped:
-            self._log_line(f"[skip] {r.image_path.name} — {r.message}")
+            self._log_line(f"[skip] {r.image_path.name} — {r.message}{t_note}")
         elif r.ok:
             self._processed_session += 1
-            self._log_line(f"[ok] {r.image_path.name} — {r.message}")
+            self._log_line(f"[ok] {r.image_path.name} — {r.message}{t_note}")
         else:
-            self._log_line(f"[err] {r.image_path.name} — {r.message}")
+            self._log_line(f"[err] {r.image_path.name} — {r.message}{t_note}")
 
         if self._batch_total > 0:
             self._batch_done += 1
@@ -604,12 +700,21 @@ class SharpBatchGui:
                 text=f"{self._batch_done} / {self._batch_total} files"
             )
             if self._batch_done >= self._batch_total:
+                n_jobs = self._batch_total
+                batch_elapsed = time.perf_counter() - self._batch_start_time
                 self._batch_total = 0
                 self._batch_done = 0
                 self._scan_running = False
                 self._progress.configure(value=0, maximum=100)
                 self._progress_label.config(
-                    text=f"Batch done · session processed: {self._processed_session}"
+                    text=(
+                        f"Batch done in {format_elapsed_for_log(batch_elapsed, decimals=1)} · "
+                        f"session processed: {self._processed_session}"
+                    )
+                )
+                self._log_line(
+                    f"--- Batch finished: {n_jobs} job(s) in "
+                    f"{format_elapsed_for_log(batch_elapsed)} ---"
                 )
 
     def _log_line(self, text: str) -> None:
@@ -624,6 +729,7 @@ class SharpBatchGui:
             pass
 
     def _on_close(self) -> None:
+        self._persist_gui_settings()
         self._stop_watch()
         self._quit_app.set()
         self.root.destroy()

@@ -11,7 +11,8 @@ import subprocess
 import sys
 import tempfile
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -84,6 +85,26 @@ def get_predictor() -> tuple[Any, str]:
     predictor.to(_device)
     _predictor = predictor
     return _predictor, _device
+
+
+def format_elapsed_for_log(seconds: float, *, decimals: int = 2) -> str:
+    """Wall duration for log lines: ``33.20s``, ``11m 24.83s``, ``1h 0m 5.00s``."""
+    s = max(0.0, float(seconds))
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    sec_rem = round(s - h * 3600 - m * 60, decimals)
+    while sec_rem >= 60:
+        sec_rem -= 60.0
+        m += 1
+    while m >= 60:
+        m -= 60
+        h += 1
+    frag = f"{sec_rem:.{decimals}f}"
+    if h == 0 and m == 0:
+        return f"{frag}s"
+    if h:
+        return f"{h}h {m}m {frag}s"
+    return f"{m}m {frag}s"
 
 
 def count_ply_vertices(ply_path: Path) -> int:
@@ -428,6 +449,7 @@ class PlySidecarResult:
     spz_path: Optional[Path] = None
     spz_error: Optional[str] = None
     ply_removed: bool = False
+    elapsed_seconds: Optional[float] = None
 
 
 def process_image_to_sidecar_ply(
@@ -594,7 +616,35 @@ def update_ply_sidecar(
 
     When ``remove_ply_after_spz`` is set, the target ``.ply`` is deleted after a
     successful ``.spz`` write (batch use; keeps disk usage down).
+
+    ``elapsed_seconds`` on the result is wall time for this call (including
+    skip / SPZ-only paths).
     """
+    t0 = time.perf_counter()
+    inner = _update_ply_sidecar_inner(
+        image_path,
+        skip_up_to_date=skip_up_to_date,
+        limit_splats=limit_splats,
+        max_splats=max_splats,
+        ply_output_path=ply_output_path,
+        export_spz=export_spz,
+        spz_only=spz_only,
+        remove_ply_after_spz=remove_ply_after_spz,
+    )
+    return replace(inner, elapsed_seconds=time.perf_counter() - t0)
+
+
+def _update_ply_sidecar_inner(
+    image_path: Path,
+    *,
+    skip_up_to_date: bool,
+    limit_splats: bool = False,
+    max_splats: Optional[int] = None,
+    ply_output_path: Optional[Path] = None,
+    export_spz: bool = True,
+    spz_only: bool = False,
+    remove_ply_after_spz: bool = True,
+) -> PlySidecarResult:
     image_path = image_path.resolve()
     ply_path = (
         sidecar_ply_path(image_path)
