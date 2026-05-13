@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Mapping
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
@@ -30,6 +31,12 @@ from PySide6.QtWidgets import (
 )
 
 from sharp_local_batch.batch_runner import WatchController, scan_jobs
+from sharp_local_batch.gui_settings import (
+    clear_saved_batch_gui_settings,
+    default_batch_gui_settings,
+    load_batch_gui_settings,
+    save_batch_gui_settings,
+)
 from sharp_local_batch.core import (
     PHOTOS_LIBRARY_MIRROR_HELP,
     PlySidecarResult,
@@ -188,6 +195,10 @@ class SharpBatchQtWindow(QMainWindow):
         stop_btn = QPushButton("Stop")
         stop_btn.clicked.connect(self._on_stop)
         row4.addWidget(stop_btn)
+        reset_btn = QPushButton("Reset settings")
+        reset_btn.setToolTip("Restore defaults and clear saved preferences for next launch.")
+        reset_btn.clicked.connect(self._on_reset_settings)
+        row4.addWidget(reset_btn)
         self._watch_chk = QCheckBox("Watch folder (new / changed images)")
         self._watch_chk.toggled.connect(self._on_watch_toggled)
         row4.addWidget(self._watch_chk)
@@ -233,6 +244,81 @@ class SharpBatchQtWindow(QMainWindow):
         layout.addWidget(foot)
 
         threading.Thread(target=self._worker_loop, daemon=True).start()
+
+        self._apply_persisted_settings(load_batch_gui_settings())
+
+    def _collect_persisted_settings(self) -> dict[str, object]:
+        use_pl = (
+            bool(self._photos_lib_chk.isChecked())
+            if self._photos_lib_chk is not None
+            else False
+        )
+        return {
+            "folder": self._folder_edit.text().strip(),
+            "recursive": self._recursive_chk.isChecked(),
+            "force_all": self._force_all_chk.isChecked(),
+            "limit_splats": self._limit_chk.isChecked(),
+            "max_splats": self._max_edit.text().strip() or "500000",
+            "skip_up_to_date": self._skip_chk.isChecked(),
+            "export_spz": self._spz_chk.isChecked(),
+            "spz_only": self._spz_only_chk.isChecked(),
+            "remove_ply_after_spz": self._remove_ply_chk.isChecked(),
+            "mirror": self._mirror_chk.isChecked(),
+            "output_mirror": self._output_mirror_edit.text().strip(),
+            "use_photos_library": use_pl,
+        }
+
+    def _apply_persisted_settings(self, d: Mapping[str, object]) -> None:
+        self._recursive_chk.setChecked(bool(d.get("recursive", True)))
+        self._force_all_chk.setChecked(bool(d.get("force_all", False)))
+        self._limit_chk.setChecked(bool(d.get("limit_splats", False)))
+        self._max_edit.setText(str(d.get("max_splats", "500000")))
+        self._skip_chk.setChecked(bool(d.get("skip_up_to_date", True)))
+        self._spz_chk.setChecked(bool(d.get("export_spz", True)))
+        self._spz_only_chk.setChecked(bool(d.get("spz_only", False)))
+        self._remove_ply_chk.setChecked(bool(d.get("remove_ply_after_spz", True)))
+        self._output_mirror_edit.setText(str(d.get("output_mirror", "")))
+
+        use_pl = bool(d.get("use_photos_library", False)) and sys.platform == "darwin"
+        lib_ok = False
+        if use_pl and self._photos_lib_chk is not None:
+            lib = default_macos_photos_library_path()
+            lib_ok = lib.is_dir()
+
+        if use_pl and lib_ok and self._photos_lib_chk is not None:
+            self._photos_lib_chk.setChecked(True)
+        else:
+            if self._photos_lib_chk is not None:
+                self._photos_lib_chk.setChecked(False)
+            self._folder_edit.setText(str(d.get("folder", "")))
+            self._mirror_chk.setChecked(bool(d.get("mirror", False)))
+
+        self._sync_force_skip_widgets(False)
+        self._sync_limit_widgets()
+        self._on_spz_only_toggled(self._spz_only_chk.isChecked())
+        self._sync_remove_ply_widgets()
+        self._sync_mirror_widgets(self._mirror_chk.isChecked())
+
+    def _persist_gui_settings(self) -> None:
+        try:
+            save_batch_gui_settings(self._collect_persisted_settings())
+        except OSError:
+            pass
+
+    @Slot()
+    def _on_reset_settings(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Reset settings",
+            "Restore all options to defaults and forget saved preferences?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        clear_saved_batch_gui_settings()
+        self._apply_persisted_settings(default_batch_gui_settings())
+        self._log_line("--- Settings reset to defaults (saved preferences cleared) ---")
 
     def _sync_limit_widgets(self) -> None:
         self._max_edit.setEnabled(self._limit_chk.isChecked())
@@ -666,6 +752,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._log.append(text)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._persist_gui_settings()
         self._stop_watch()
         self._quit_app.set()
         event.accept()
