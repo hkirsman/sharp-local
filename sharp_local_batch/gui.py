@@ -125,6 +125,7 @@ class SharpBatchGui:
         self._sync_remove_ply_widgets()
         self._sync_mirror_widgets()
 
+    # save_batch_gui_settings removes gui_settings.json when merged values match defaults.
     def _persist_gui_settings(self) -> None:
         try:
             save_batch_gui_settings(self._collect_persisted_settings())
