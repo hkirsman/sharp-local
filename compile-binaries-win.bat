@@ -20,9 +20,18 @@ echo Building SharpWeb...
 ".venv\Scripts\python.exe" -m PyInstaller packaging\sharp_web.spec
 if errorlevel 1 exit /b 1
 
+".venv\Scripts\python.exe" -c "from sharp_local_batch._version import __version__; print(__version__)" > _ver_tmp.txt
+set /p VERSION=<_ver_tmp.txt
+del _ver_tmp.txt
+
+echo Packaging archives...
+cd dist
+powershell -NoProfile -Command "Compress-Archive -Force -Path SharpBatch -DestinationPath 'SharpBatch-%VERSION%-win.zip'; Compress-Archive -Force -Path SharpWeb -DestinationPath 'SharpWeb-%VERSION%-win.zip'"
+cd ..
+
 echo.
 echo ========================================================================
-echo Build finished OK.
+echo Build finished OK -- version %VERSION%.
 echo.
 echo Batch tool (GUI/CLI^):
 echo   %cd%\dist\SharpBatch\SharpBatch.exe
@@ -32,7 +41,9 @@ echo Web UI (Flask server — open http://127.0.0.1:8765 after starting^):
 echo   %cd%\dist\SharpWeb\SharpWeb.exe
 echo   Folder: %cd%\dist\SharpWeb\
 echo.
-echo Ship each app by zipping the whole folder above (include _internal^).
+echo Archives (upload these to the GitHub release^):
+echo   %cd%\dist\SharpBatch-%VERSION%-win.zip
+echo   %cd%\dist\SharpWeb-%VERSION%-win.zip
 echo ========================================================================
 if /i "%~1"=="nopause" (
   endlocal

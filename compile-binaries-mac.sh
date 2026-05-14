@@ -27,9 +27,17 @@ echo "Building SharpBatch..."
 echo "Building SharpWeb..."
 "$ROOT/$PYTHON" -m PyInstaller packaging/sharp_web.spec
 
+VERSION=$("$ROOT/$PYTHON" -c "from sharp_local_batch._version import __version__; print(__version__)")
+
+echo "Packaging archives..."
+cd "$ROOT/dist"
+zip -r "SharpBatch-${VERSION}-mac.zip" SharpBatch/
+zip -r "SharpWeb-${VERSION}-mac.zip" SharpWeb/
+cd "$ROOT"
+
 echo ""
 echo "========================================================================"
-echo "Build finished OK."
+echo "Build finished OK — version ${VERSION}."
 echo ""
 echo "Batch tool (GUI/CLI):"
 echo "  $ROOT/dist/SharpBatch/SharpBatch"
@@ -39,7 +47,9 @@ echo "Web UI (Flask server — open http://127.0.0.1:8765 after starting):"
 echo "  $ROOT/dist/SharpWeb/SharpWeb"
 echo "  Folder: $ROOT/dist/SharpWeb/"
 echo ""
-echo "Ship each app by zipping the whole folder above (include _internal/)."
+echo "Archives (upload these to the GitHub release):"
+echo "  $ROOT/dist/SharpBatch-${VERSION}-mac.zip"
+echo "  $ROOT/dist/SharpWeb-${VERSION}-mac.zip"
 echo ""
 echo "NOTE: bundles built locally are not notarised. To open them the first"
 echo "  time: right-click → Open → Open, or run:"
