@@ -20,12 +20,13 @@ echo Building SharpWeb...
 ".venv\Scripts\python.exe" -m PyInstaller packaging\sharp_web.spec
 if errorlevel 1 exit /b 1
 
-for /f "delims=" %%V in ('".venv\Scripts\python.exe" -c "from sharp_local_batch._version import __version__; print(__version__)"') do set VERSION=%%V
+".venv\Scripts\python.exe" -c "from sharp_local_batch._version import __version__; print(__version__)" > _ver_tmp.txt
+set /p VERSION=<_ver_tmp.txt
+del _ver_tmp.txt
 
 echo Packaging archives...
 cd dist
-powershell -NoProfile -Command "Compress-Archive -Force -Path SharpBatch -DestinationPath 'SharpBatch-%VERSION%-win.zip'"
-powershell -NoProfile -Command "Compress-Archive -Force -Path SharpWeb -DestinationPath 'SharpWeb-%VERSION%-win.zip'"
+powershell -NoProfile -Command "Compress-Archive -Force -Path SharpBatch -DestinationPath 'SharpBatch-%VERSION%-win.zip'; Compress-Archive -Force -Path SharpWeb -DestinationPath 'SharpWeb-%VERSION%-win.zip'"
 cd ..
 
 echo.
