@@ -1,4 +1,4 @@
-# Sharp local (SHARP web experiment)
+# Sharp local (ml-sharp tools)
 
 Small local app: upload an image → run [Apple SHARP](https://github.com/apple/ml-sharp) (PyTorch) → view the 3D Gaussian splat in the browser with Three.js and [GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D).
 
