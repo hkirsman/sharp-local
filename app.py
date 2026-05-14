@@ -21,19 +21,22 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
 from sharp_local_batch.logging_config import ensure_stderr_info_logging
 
 ensure_stderr_info_logging()
 
+from sharp_local_batch._version import __version__ as SHARP_LOCAL_VERSION
 from sharp_local_batch.core import (
     ML_SHARP_SRC,
     PREDICT_LOCK,
@@ -46,9 +49,42 @@ from sharp_local_batch.core import (
     predictor_loaded,
 )
 
-EXPERIMENT_ROOT = Path(__file__).resolve().parent
-OUTPUTS_DIR = EXPERIMENT_ROOT / "outputs"
-STATIC_DIR = EXPERIMENT_ROOT / "static"
+def _dev_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _bundle_root() -> Path:
+    """PyInstaller extract dir when frozen; repo root in development."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return _dev_root()
+
+
+def _outputs_dir() -> Path:
+    """Scene PLY/SPZ under repo ``outputs/`` in dev; user-writable dir when frozen."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        if sys.platform == "win32":
+            local = os.environ.get("LOCALAPPDATA")
+            if local:
+                return Path(local) / "SharpLocal" / "outputs"
+            return Path.home() / "AppData" / "Local" / "SharpLocal" / "outputs"
+        if sys.platform == "darwin":
+            return (
+                Path.home()
+                / "Library"
+                / "Application Support"
+                / "SharpLocal"
+                / "outputs"
+            )
+        xdg = os.environ.get("XDG_DATA_HOME")
+        if xdg:
+            return Path(xdg) / "sharp-local" / "outputs"
+        return Path.home() / ".local" / "share" / "sharp-local" / "outputs"
+    return _dev_root() / "outputs"
+
+
+STATIC_DIR = _bundle_root() / "static"
+OUTPUTS_DIR = _outputs_dir()
 
 
 def _configure_logger(name: str) -> logging.Logger:
@@ -117,7 +153,11 @@ def favicon() -> Any:
 
 @app.route("/")
 def index() -> Any:
-    return send_from_directory(STATIC_DIR, "index.html")
+    """Serve ``index.html`` with title and heading tied to ``SHARP_LOCAL_VERSION``."""
+    path = STATIC_DIR / "index.html"
+    branding = f"Sharp Local web {SHARP_LOCAL_VERSION}"
+    body = path.read_text(encoding="utf-8").replace("__SHARP_LOCAL_WEB_TITLE__", branding)
+    return Response(body, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/api/health")
@@ -126,6 +166,8 @@ def health() -> Any:
     return jsonify(
         {
             "ok": True,
+            "app": "sharp-local-web",
+            "version": SHARP_LOCAL_VERSION,
             "ml_sharp_path": str(ML_SHARP_SRC),
             "ml_sharp_present": ok,
             "model_loaded": predictor_loaded(),

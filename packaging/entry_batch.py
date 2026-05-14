@@ -6,8 +6,12 @@ import multiprocessing
 
 
 def main() -> None:
-    from sharp_local_batch.__main__ import main as batch_main
+    import logging
 
+    from sharp_local_batch.__main__ import main as batch_main
+    from sharp_local_batch._version import __version__
+
+    logging.getLogger("SharpBatch").info("Sharp Local batch %s", __version__)
     batch_main()
 
 

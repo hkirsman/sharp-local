@@ -33,7 +33,9 @@ from sharp_local_batch.core import (
 class SharpBatchGui:
     def __init__(self) -> None:
         self.root = tk.Tk()
-        self.root.title("sharp_local_batch")
+        from sharp_local_batch._version import __version__
+
+        self.root.title(f"Sharp Local batch {__version__}")
         self.root.minsize(640, 440)
 
         self._folder_var = tk.StringVar(value="")

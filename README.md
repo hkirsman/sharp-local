@@ -83,13 +83,27 @@ python -m sharp_local_batch --cli --folder ~/Pictures/Photos\ Library.photoslibr
   --recursive --output-root /path/to/splat_mirror
 ```
 
+### Optional splat count reduction dependency (`splat-transform`)
+
+Optional splat count reduction (`--limit-splats`) uses the external PlayCanvas CLI `splat-transform`, which is not bundled. Install Node.js/npm from <https://nodejs.org/>, then:
+
+```bash
+npm install -g @playcanvas/splat-transform
+splat-transform --help
+```
+
 On **macOS**, the GUI can enable **Use system Photos library as source folder** — that **replaces** the main folder path (one source per run, not an extra directory); scan/watch use **`~/Pictures/Photos Library.photoslibrary`** while it is on, with mirrored PLY output; pick a **target folder for mirror** outside that bundle. Uncheck it to browse any other folder. Images are collected from **`originals/`** (or older libraries **`Masters/`**) inside the package, same as **`backend/api.py`** iCloud discovery — not only the bundle root. For the CLI, any **`.photoslibrary`** path passed to **`--folder`** requires **`--output-root`** and uses the same rules.
 
 In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror** (must differ from the source folder). Default remains **next to each image**. For images under your home folder, mirrored PLY paths repeat from home (e.g. **`Pictures/Photos Library.photoslibrary/originals/…`**) instead of only **`originals/…`**; sources outside home still mirror relative to the chosen source root.
 
 **Homebrew Python without `_tkinter`:** use **PySide6-Essentials** from requirements; or `brew install python-tk@3.14` (match your Python minor) and recreate `.venv`; or use `--cli`.
 
-**Standalone build (PyInstaller):** with the repo venv active and `ml-sharp` present, run `pip install pyinstaller` then `pyinstaller packaging/sharp_batch.spec` from the repo root. The bundle is **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless). First inference still downloads the SHARP weights into the user cache unless you ship them separately.
+**Standalone builds (PyInstaller):** with the repo venv active and `ml-sharp` present, install PyInstaller (`pip install pyinstaller`), then from the repo root:
+
+- **Batch tool:** `pyinstaller packaging/sharp_batch.spec` → **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless).
+- **Web UI (Flask):** `pyinstaller packaging/sharp_web.spec` → **`dist/SharpWeb/`**. Run `./dist/SharpWeb/SharpWeb`, then open **http://127.0.0.1:8765**. When frozen, scenes are written under the user data directory (on Windows: `%LOCALAPPDATA%\SharpLocal\outputs\`), not next to the executable.
+
+First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On macOS you can also run **`./compile-binaries-mac.sh`** from the repo root after the venv is set up (see `docs/mac-setup.md`). On Windows run **`compile-binaries-win.bat`** (see `docs/windows-setup.md`).
 
 ## Using the UI
 
