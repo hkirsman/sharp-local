@@ -56,7 +56,11 @@ python3 -m pip install -e ./ml-sharp -r requirements.txt
 
 ## Run
 
-From the directory that contains `app.py`:
+The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`.
+
+### Web UI (browser)
+
+Manual upload and preview in the browser. From the directory that contains `app.py`:
 
 ```bash
 source .venv/bin/activate
@@ -64,8 +68,6 @@ python app.py
 ```
 
 Open **http://127.0.0.1:8765**
-
-The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`.
 
 ### Batch folder tool (`sharp_local_batch`)
 
@@ -83,6 +85,19 @@ python -m sharp_local_batch --cli --folder ~/Pictures/Photos\ Library.photoslibr
   --recursive --output-root /path/to/splat_mirror
 ```
 
+### HTTP server (batch window app)
+
+The batch GUI can run a small local HTTP server so other programs can request splats on demand (without using the browser UI):
+
+```bash
+source .venv/bin/activate
+python -m sharp_local_batch
+```
+
+Click **Start server**. The app shows a base URL (default **http://127.0.0.1:8765**). Clients call `GET /health` and `POST /transform` — see [docs/http-api.md](docs/http-api.md). Request and inference progress appear in the batch app **Log** window.
+
+Headless equivalent: `python app.py --host 127.0.0.1 --port 8765` (same endpoints; also serves the browser UI at `/`).
+
 ### Optional splat count reduction dependency (`splat-transform`)
 
 Optional splat count reduction (`--limit-splats`) uses the external PlayCanvas CLI `splat-transform`, which is not bundled. Install Node.js/npm from <https://nodejs.org/>, then:
@@ -92,7 +107,7 @@ npm install -g @playcanvas/splat-transform
 splat-transform --help
 ```
 
-On **macOS**, the GUI can enable **Use system Photos library as source folder** — that **replaces** the main folder path (one source per run, not an extra directory); scan/watch use **`~/Pictures/Photos Library.photoslibrary`** while it is on, with mirrored PLY output; pick a **target folder for mirror** outside that bundle. Uncheck it to browse any other folder. Images are collected from **`originals/`** (or older libraries **`Masters/`**) inside the package, same as **`backend/api.py`** iCloud discovery — not only the bundle root. For the CLI, any **`.photoslibrary`** path passed to **`--folder`** requires **`--output-root`** and uses the same rules.
+On **macOS**, the GUI can enable **Use system Photos library as source folder** — that **replaces** the main folder path (one source per run, not an extra directory); scan/watch use **`~/Pictures/Photos Library.photoslibrary`** while it is on, with mirrored PLY output; pick a **target folder for mirror** outside that bundle. Uncheck it to browse any other folder. Images are collected from **`originals/`** (or older libraries **`Masters/`**) inside the package, not only the bundle root. For the CLI, any **`.photoslibrary`** path passed to **`--folder`** requires **`--output-root`** and uses the same rules.
 
 In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror** (must differ from the source folder). Default remains **next to each image**. For images under your home folder, mirrored PLY paths repeat from home (e.g. **`Pictures/Photos Library.photoslibrary/originals/…`**) instead of only **`originals/…`**; sources outside home still mirror relative to the chosen source root.
 

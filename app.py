@@ -26,6 +26,7 @@ import shutil
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -104,6 +105,35 @@ LOGGER = _configure_logger("sharp-web")
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
 
+_gui_log_sink: Callable[[str], None] | None = None
+
+
+def set_gui_log_sink(sink: Callable[[str], None] | None) -> None:
+    """When set, [gui_log] lines appear in the batch app log window."""
+    global _gui_log_sink
+    _gui_log_sink = sink
+
+
+def gui_log(message: str) -> None:
+    """User-facing line for the batch GUI log (not stderr / werkzeug)."""
+    if _gui_log_sink is not None:
+        try:
+            _gui_log_sink(message)
+        except Exception:
+            pass
+
+
+def _suppress_flask_startup_noise() -> None:
+    """Keep werkzeug dev-server banners off the GUI log and stderr."""
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    try:
+        import flask.cli
+
+        flask.cli.show_server_banner = lambda *args, **kwargs: None  # type: ignore[method-assign]
+    except Exception:
+        pass
+
+
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
@@ -117,8 +147,18 @@ def _scene_id_ok(scene_id: str) -> bool:
 
 
 def _parse_splat_limit_form() -> tuple[bool, Optional[int], Optional[str]]:
-    """From multipart form: (limit_enabled, max_splats or None, error message or None)."""
+    """From multipart form: (limit_enabled, max_splats or None, error message or None).
+
+    If the client omits ``limit_splats``, fall back to defaults set when the
+    batch GUI started the HTTP server (``DEFAULT_LIMIT_SPLATS`` / ``DEFAULT_MAX_SPLATS``).
+    """
     flag = (request.form.get("limit_splats") or "").strip().lower()
+    if not flag:
+        if app.config.get("DEFAULT_LIMIT_SPLATS"):
+            n = app.config.get("DEFAULT_MAX_SPLATS")
+            if isinstance(n, int) and n >= 1:
+                return True, n, None
+        return False, None, None
     active = flag in ("1", "true", "on", "yes")
     if not active:
         return False, None, None
@@ -161,7 +201,7 @@ def index() -> Any:
 
 
 @app.route("/api/health")
-def health() -> Any:
+def api_health() -> Any:
     ok = ML_SHARP_SRC.is_dir()
     return jsonify(
         {
@@ -174,6 +214,18 @@ def health() -> Any:
             "device": inference_device(),
         }
     )
+
+
+@app.route("/health")
+def health() -> Any:
+    """HTTP splat service: readiness probe (GET /health)."""
+    ok = ML_SHARP_SRC.is_dir()
+    return jsonify({
+        "ok": ok,
+        "kind": "splat",
+        "name": "sharp-local",
+        "version": SHARP_LOCAL_VERSION,
+    })
 
 
 @app.route("/api/scenes", methods=["GET"])
@@ -348,7 +400,114 @@ def generate() -> Any:
     return jsonify(payload)
 
 
+@app.route("/transform", methods=["POST"])
+def transform() -> Any:
+    """HTTP splat service: image in, PLY or SPZ bytes out (POST /transform)."""
+    if "file" not in request.files:
+        return jsonify({"error": "Missing file field"}), 400
+    upload = request.files["file"]
+    if not upload.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    fmt = (request.form.get("format") or "ply").strip().lower()
+    if fmt not in ("ply", "spz"):
+        fmt = "ply"
+    name = upload.filename
+    limit_on, max_splats, limit_err = _parse_splat_limit_form()
+    if limit_err:
+        gui_log(f"  Failed — {limit_err}")
+        return jsonify({"error": limit_err}), 400
+    gui_log(f"Generating splat for {name}…")
+    t0 = time.perf_counter()
+
+    ensure_sharp_imports()
+    from sharp.utils import io as sharp_io
+    from sharp.utils.gaussians import save_ply
+    from sharp.cli.predict import predict_image
+
+    ext = Path(name).suffix
+    allowed = set(sharp_io.get_supported_image_extensions())
+    if ext not in allowed:
+        gui_log(f"  Failed — unsupported image type ({ext or 'none'})")
+        return jsonify({"error": f"Unsupported image type: {ext or '(none)'}"}), 400
+
+    import tempfile
+    import torch
+
+    # Read output into memory before the temp dir is deleted. Returning
+    # send_file(path) from inside TemporaryDirectory deletes the file before
+    # Flask streams it, so the client gets an empty/failed body.
+    payload: bytes | None = None
+    download_name = "splat.ply"
+
+    with tempfile.TemporaryDirectory(prefix="sharp_transform_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        safe_suffix = ext if ext else ".jpg"
+        input_path = tmpdir_path / f"input{safe_suffix}"
+        upload.save(str(input_path))
+
+        ply_path = tmpdir_path / "splat.ply"
+        try:
+            with PREDICT_LOCK:
+                predictor, device_str = get_predictor()
+                image, _, f_px = sharp_io.load_rgb(input_path)
+                height, width = int(image.shape[0]), int(image.shape[1])
+                device = torch.device(device_str)
+                gui_log(f"  Running SHARP ({width}x{height}, {device_str})…")
+                gaussians = predict_image(predictor, image, f_px, device)
+                save_ply(gaussians, f_px, (height, width), ply_path)
+        except Exception:
+            LOGGER.exception("Inference failed for %s", name)
+            gui_log(f"  Failed — {name} (see terminal for details)")
+            return jsonify({"error": "Inference failed; check server logs."}), 500
+
+        splat_count_full = count_ply_vertices(ply_path)
+        splat_count = splat_count_full
+        if limit_on and max_splats is not None and splat_count_full > max_splats:
+            gui_log(f"  Limiting {splat_count_full:,} -> {max_splats:,} splats…")
+            if decimate_ply_splat_transform(ply_path, max_splats):
+                splat_count = count_ply_vertices(ply_path)
+            else:
+                gui_log("  Limit skipped (splat-transform missing or failed)")
+
+        infer_s = time.perf_counter() - t0
+        count_note = f"{splat_count:,} splats"
+        if splat_count < splat_count_full:
+            count_note += f" (from {splat_count_full:,})"
+
+        if fmt == "spz":
+            spz_path = tmpdir_path / "splat.spz"
+            if export_ply_to_spz(ply_path, spz_path):
+                payload = spz_path.read_bytes()
+                download_name = "splat.spz"
+                gui_log(f"  Done — {name} ({count_note}, {infer_s:.1f}s, SPZ)")
+            else:
+                LOGGER.warning("SPZ export failed for %s; returning PLY", name)
+
+        if payload is None:
+            payload = ply_path.read_bytes()
+            download_name = "splat.ply"
+            gui_log(f"  Done — {name} ({count_note}, {infer_s:.1f}s)")
+
+    return Response(
+        payload,
+        mimetype="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+            "Content-Length": str(len(payload)),
+        },
+    )
+
+
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Sharp Local web server")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8765, help="Port (default: 8765)")
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO)
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
+    LOGGER.info("Sharp Local web — http://%s:%d", args.host, args.port)
+    app.run(host=args.host, port=args.port, debug=False, threaded=True)

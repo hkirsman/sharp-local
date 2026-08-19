@@ -312,9 +312,8 @@ def effective_batch_scan_root(library_or_folder: Path) -> Path:
     """Directory to enumerate for images.
 
     Apple Photos stores downloadable originals under ``originals/`` (and older
-    libraries may use ``Masters/``) inside the ``.photoslibrary`` bundle — same
-    as ``backend/api.py`` (``PHOTO_DIRS`` / iCloud discovery). Scanning the
-    bundle root alone often misses those files.
+    libraries may use ``Masters/``) inside the ``.photoslibrary`` bundle.
+    Scanning the bundle root alone often misses those files.
     """
     try:
         p = library_or_folder.resolve()

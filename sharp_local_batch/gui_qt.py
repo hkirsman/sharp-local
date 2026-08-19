@@ -54,6 +54,7 @@ class _Bridge(QObject):
 
     job_finished = Signal(object)
     watch_enqueue = Signal(object)
+    server_log = Signal(str)
 
 
 class SharpBatchQtWindow(QMainWindow):
@@ -84,6 +85,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._bridge = _Bridge()
         self._bridge.job_finished.connect(self._on_job_done, Qt.QueuedConnection)
         self._bridge.watch_enqueue.connect(self._on_watch_enqueue, Qt.QueuedConnection)
+        self._bridge.server_log.connect(self._on_server_log, Qt.QueuedConnection)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -205,6 +207,22 @@ class SharpBatchQtWindow(QMainWindow):
         self._watch_chk.toggled.connect(self._on_watch_toggled)
         row4.addWidget(self._watch_chk)
         layout.addLayout(row4)
+
+        # Server mode row
+        srv_row = QHBoxLayout()
+        self._srv_btn = QPushButton("Start server")
+        self._srv_btn.setToolTip(
+            "Start a local HTTP server. Other apps can POST images to /transform "
+            "and receive splat files. See docs/http-api.md."
+        )
+        self._srv_btn.clicked.connect(self._on_toggle_server)
+        srv_row.addWidget(self._srv_btn)
+        self._srv_label = QLabel("Server stopped")
+        self._srv_label.setStyleSheet("color: #666;")
+        srv_row.addWidget(self._srv_label, stretch=1)
+        layout.addLayout(srv_row)
+        self._srv_thread: threading.Thread | None = None
+        self._srv_running = False
 
         layout.addWidget(QLabel("Batch progress"))
         self._progress = QProgressBar()
@@ -556,6 +574,51 @@ class SharpBatchQtWindow(QMainWindow):
         self._progress.setMaximum(100)
         self._progress_label.setText("Stopped")
         self._log_line("--- Stop: queue cleared ---")
+
+    def _on_toggle_server(self) -> None:
+        if self._srv_running:
+            from app import set_gui_log_sink
+
+            set_gui_log_sink(None)
+            self._srv_label.setText("Server stopped (restart app to re-bind port)")
+            self._srv_label.setStyleSheet("color: #666;")
+            self._srv_btn.setEnabled(False)
+            self._srv_running = False
+            self._log_line("--- Server stopped (Flask cannot unbind; restart app to re-use port) ---")
+            return
+        self._srv_running = True
+        self._srv_btn.setText("Stop server")
+        port = 8765
+        url = f"http://127.0.0.1:{port}"
+        self._srv_label.setText(f"Running: {url}")
+        self._srv_label.setStyleSheet("color: #2a2;")
+        self._log_line(f"--- Server starting at {url} ---")
+
+        def _run() -> None:
+            from app import OUTPUTS_DIR, app, set_gui_log_sink, _suppress_flask_startup_noise
+
+            app.config["DEFAULT_LIMIT_SPLATS"] = self._limit_chk.isChecked()
+            max_s: int | None = None
+            try:
+                n = int(self._max_edit.text().strip())
+                if n >= 1:
+                    max_s = n
+            except ValueError:
+                max_s = None
+            app.config["DEFAULT_MAX_SPLATS"] = max_s
+            if self._limit_chk.isChecked() and max_s is not None:
+                self._bridge.server_log.emit(f"Splat limit: {max_s:,}")
+            set_gui_log_sink(self._bridge.server_log.emit)
+            _suppress_flask_startup_noise()
+            OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+            app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
+
+        self._srv_thread = threading.Thread(target=_run, daemon=True)
+        self._srv_thread.start()
+
+    @Slot(str)
+    def _on_server_log(self, text: str) -> None:
+        self._log_line(text)
 
     @Slot(bool)
     def _on_watch_toggled(self, checked: bool) -> None:
