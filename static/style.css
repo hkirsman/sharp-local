@@ -296,6 +296,13 @@ body {
   color: #e57373;
 }
 
+.status-bar a.status-log-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  margin-left: 0.25rem;
+}
+
 .status-bar.working {
   color: #b0b0b0;
 }

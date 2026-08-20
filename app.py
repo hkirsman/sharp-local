@@ -35,7 +35,7 @@ from flask import Flask, Response, jsonify, request, send_file, send_from_direct
 
 from sharp_local_batch.logging_config import ensure_stderr_info_logging
 
-ensure_stderr_info_logging()
+ensure_stderr_info_logging(log_file_name="sharp-web.log")
 
 from sharp_local_batch._version import __version__ as SHARP_LOCAL_VERSION
 from sharp_local_batch.core import (
@@ -101,6 +101,13 @@ def _configure_logger(name: str) -> logging.Logger:
 
 
 LOGGER = _configure_logger("sharp-web")
+WEB_LOG_PATH: Path | None = None
+try:
+    from sharp_local_batch.logging_config import attach_file_handler, web_log_path
+
+    WEB_LOG_PATH = attach_file_handler(LOGGER, "sharp-web.log") or web_log_path()
+except Exception:
+    WEB_LOG_PATH = None
 # ml-sharp pulls in matplotlib; on macOS its font scan is noisy and harmless.
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
@@ -121,6 +128,17 @@ def gui_log(message: str) -> None:
             _gui_log_sink(message)
         except Exception:
             pass
+
+
+def _inference_failed_payload() -> dict[str, str]:
+    """JSON body for failed inference; points at the on-disk log when available."""
+    if WEB_LOG_PATH is not None:
+        return {
+            "error": f"Inference failed. Check logs at {WEB_LOG_PATH}",
+            "log_path": str(WEB_LOG_PATH),
+            "log_url": "/api/logs",
+        }
+    return {"error": "Inference failed; check server logs."}
 
 
 def _suppress_flask_startup_noise() -> None:
@@ -211,16 +229,37 @@ def index() -> Any:
 @app.route("/api/health")
 def api_health() -> Any:
     ok = ML_SHARP_SRC.is_dir()
-    return jsonify(
-        {
-            "ok": True,
-            "app": "sharp-local-web",
-            "version": SHARP_LOCAL_VERSION,
-            "ml_sharp_path": str(ML_SHARP_SRC),
-            "ml_sharp_present": ok,
-            "model_loaded": predictor_loaded(),
-            "device": inference_device(),
-        }
+    payload: dict[str, Any] = {
+        "ok": True,
+        "app": "sharp-local-web",
+        "version": SHARP_LOCAL_VERSION,
+        "ml_sharp_path": str(ML_SHARP_SRC),
+        "ml_sharp_present": ok,
+        "model_loaded": predictor_loaded(),
+        "device": inference_device(),
+    }
+    if WEB_LOG_PATH is not None:
+        payload["log_path"] = str(WEB_LOG_PATH)
+        payload["log_url"] = "/api/logs"
+    return jsonify(payload)
+
+
+@app.route("/api/logs", methods=["GET"])
+def download_logs() -> Any:
+    """Download the Sharp Local web log file (for packaged apps with no console)."""
+    path = WEB_LOG_PATH
+    if path is None or not path.is_file():
+        return jsonify({"error": "Log file not available"}), 404
+    for handler in LOGGER.handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+    return send_file(
+        path,
+        mimetype="text/plain; charset=utf-8",
+        as_attachment=True,
+        download_name="sharp-web.log",
     )
 
 
@@ -353,7 +392,7 @@ def generate() -> Any:
             shutil.rmtree(scene_dir, ignore_errors=True)
         except OSError:
             pass
-        return jsonify({"error": "Inference failed; check server logs."}), 500
+        return jsonify(_inference_failed_payload()), 500
 
     splat_count_full = count_ply_vertices(ply_path)
     splat_count = splat_count_full
@@ -472,7 +511,7 @@ def transform() -> Any:
         except Exception:
             LOGGER.exception("Inference failed for %s", name)
             gui_log(f"  Failed — {name} (see terminal for details)")
-            return jsonify({"error": "Inference failed; check server logs."}), 500
+            return jsonify(_inference_failed_payload()), 500
 
         splat_count_full = count_ply_vertices(ply_path)
         splat_count = splat_count_full

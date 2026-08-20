@@ -829,9 +829,56 @@ class SharpBatchQtWindow(QMainWindow):
 
 
 def main() -> None:
+    import logging
+    import os
+    import subprocess
     import sys
+    import traceback
 
+    from sharp_local_batch.logging_config import batch_log_path, ensure_stderr_info_logging
+
+    log_path = ensure_stderr_info_logging(log_file_name="sharp-batch.log") or batch_log_path()
     app = QApplication(sys.argv)
-    win = SharpBatchQtWindow()
-    win.show()
-    sys.exit(app.exec())
+    app.setApplicationName("Sharp Local batch")
+    app.setOrganizationName("SharpLocal")
+
+    try:
+        win = SharpBatchQtWindow()
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        if sys.platform == "darwin":
+            # Finder-launched .app bundles often start behind other windows.
+            try:
+                from AppKit import NSApp, NSApplicationActivationPolicyRegular
+
+                NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+                NSApp.activateIgnoringOtherApps_(True)
+            except ImportError:
+                try:
+                    subprocess.Popen(
+                        [
+                            "osascript",
+                            "-e",
+                            "tell application \"System Events\" to set frontmost of "
+                            f"first process whose unix id is {os.getpid()} to true",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except OSError:
+                    pass
+        sys.exit(app.exec())
+    except Exception as exc:
+        logging.exception("SharpBatch GUI failed to start")
+        detail = traceback.format_exc()
+        detail = f"{detail}\n\nLog file:\n{log_path}"
+        try:
+            QMessageBox.critical(
+                None,
+                "Sharp Local batch",
+                f"Failed to start:\n{exc}\n\n{detail[-1500:]}",
+            )
+        except Exception:
+            pass
+        raise SystemExit(1) from exc

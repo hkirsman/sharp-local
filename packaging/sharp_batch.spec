@@ -98,7 +98,9 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    # Windowed app so Finder double-click shows a Dock icon (CLI still works
+    # when run from Terminal via Contents/MacOS/SharpBatch --cli ...).
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

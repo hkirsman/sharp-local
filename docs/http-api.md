@@ -6,6 +6,17 @@ same endpoints (plus the browser UI at `/`).
 
 Default base URL: **http://127.0.0.1:8765** (no trailing slash).
 
+## GET `/api/logs`
+
+Download the Sharp Local web log file (`sharp-web.log`) as an attachment.
+Useful for packaged apps that have no console window.
+
+**Success (200):** `text/plain` file download.
+
+**Errors:** JSON `{ "error": "..." }` with 404 if the log is missing.
+
+Failed `/api/generate` responses may include `log_path` and `log_url` pointing here.
+
 ## GET `/health`
 
 Readiness probe. Should be fast; do not load models here.

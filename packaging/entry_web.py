@@ -30,6 +30,10 @@ def main() -> None:
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     LOGGER.info("Sharp Local web %s - http://%s:%d", __version__, args.host, args.port)
+    from app import WEB_LOG_PATH
+
+    if WEB_LOG_PATH is not None:
+        LOGGER.info("Log file: %s", WEB_LOG_PATH)
 
     def _start_server() -> None:
         app.run(host=args.host, port=args.port, debug=False, threaded=True)

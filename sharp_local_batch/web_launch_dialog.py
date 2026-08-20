@@ -27,9 +27,17 @@ def browser_url(host: str, port: int) -> str:
 
 
 class WebLaunchWindow(QWidget):
-    def __init__(self, url: str, version: str, on_quit: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        url: str,
+        version: str,
+        on_quit: Callable[[], None],
+        *,
+        log_url: str | None = None,
+    ) -> None:
         super().__init__()
         self._url = url
+        self._log_url = log_url
         self._on_quit = on_quit
 
         self.setWindowTitle(f"Sharp Local web {version}")
@@ -62,12 +70,17 @@ class WebLaunchWindow(QWidget):
         copy_btn = QPushButton("Copy Link")
         copy_btn.clicked.connect(self._copy_link)
 
+        logs_btn = QPushButton("Download logs")
+        logs_btn.setEnabled(bool(log_url))
+        logs_btn.clicked.connect(self._download_logs)
+
         quit_btn = QPushButton("Quit")
         quit_btn.clicked.connect(self._quit)
 
         row = QHBoxLayout()
         row.addWidget(open_btn)
         row.addWidget(copy_btn)
+        row.addWidget(logs_btn)
         row.addStretch(1)
         row.addWidget(quit_btn)
 
@@ -85,6 +98,10 @@ class WebLaunchWindow(QWidget):
 
     def _copy_link(self) -> None:
         QGuiApplication.clipboard().setText(self._url)
+
+    def _download_logs(self) -> None:
+        if self._log_url:
+            QDesktopServices.openUrl(QUrl(self._log_url))
 
     def _quit(self) -> None:
         self._on_quit()
@@ -104,6 +121,7 @@ def run_server_with_launch_dialog(
 ) -> None:
     """Start Flask in a background thread and show the launch dialog on the main thread."""
     url = browser_url(host, port)
+    log_url = f"{url}/api/logs"
 
     server_thread = threading.Thread(target=start_server, name="sharp-web-flask", daemon=True)
     server_thread.start()
@@ -113,6 +131,7 @@ def run_server_with_launch_dialog(
         url,
         version,
         on_quit=lambda: _force_exit(qt_app),
+        log_url=log_url,
     )
     window.show()
     window.raise_()
