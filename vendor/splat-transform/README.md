@@ -16,3 +16,4 @@ Rebuild (infrequent):
 ```
 
 Committed as normal git binaries (keep each file under GitHub's 100 MB limit).
+See [docs/DECISIONS.md](../../docs/DECISIONS.md) Decision 1 (no Git LFS).
