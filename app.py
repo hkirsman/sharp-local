@@ -138,6 +138,11 @@ app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
 
+@app.errorhandler(413)
+def request_entity_too_large(_e: Exception) -> Any:
+    return jsonify({"error": "File too large"}), 413
+
+
 def _scene_id_ok(scene_id: str) -> bool:
     try:
         uuid.UUID(scene_id)
