@@ -13,6 +13,9 @@ import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
+sys.path.insert(0, str(pathlib.Path(SPECPATH).resolve()))
+from splat_transform_bundle import splat_transform_binary  # noqa: E402
+
 block_cipher = None
 
 REPO = pathlib.Path(SPECPATH).resolve().parent
@@ -73,10 +76,12 @@ hiddenimports = collect_submodules("sharp") + [
     "PySide6.QtWidgets",
 ]
 
+_binaries = [splat_transform_binary(REPO)]
+
 a = Analysis(
     [str(REPO / "packaging" / "entry_web.py")],
     pathex=[str(REPO)],
-    binaries=[],
+    binaries=_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

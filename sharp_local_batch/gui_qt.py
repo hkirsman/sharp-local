@@ -169,7 +169,7 @@ class SharpBatchQtWindow(QMainWindow):
         row3b.addWidget(self._spz_chk)
         self._spz_only_chk = QCheckBox("SPZ from existing PLY only (no new render)")
         self._spz_only_chk.setToolTip(
-            "When a PLY already exists: no SHARP — optional Limit splat count runs "
+            "When a PLY already exists: no SHARP - optional Limit splat count runs "
             "splat-transform on that PLY, then .spz is written. "
             "When no PLY yet: runs full SHARP pipeline once, then .spz."
         )
@@ -251,8 +251,8 @@ class SharpBatchQtWindow(QMainWindow):
 
         hint = (
             "PLY next to each image when mirror output is off; with mirror on, PLY goes "
-            "under the target folder for mirror. Optional cap uses splat-transform "
-            "(npm i -g @playcanvas/splat-transform)."
+            "under the target folder for mirror. Optional cap uses the bundled "
+            "splat-transform helper (or PATH / npm install -g @playcanvas/splat-transform)."
         )
         foot = QLabel(hint)
         foot.setWordWrap(True)

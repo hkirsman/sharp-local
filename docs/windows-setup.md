@@ -47,6 +47,11 @@ generates icons from `packaging\icon.svg`, then runs
 `activate` step is required. For unattended use (no `pause` at the end), run
 `compile-binaries-win.bat nopause`.
 
+Requires the vendored Windows `splat-transform` helper
+(`vendor\splat-transform\splat-transform-*-windows-x64.exe`). Rebuild helpers
+on a Mac (or any machine with Bun) via `packaging/compile-splat-transform.sh`
+when bumping the pin - that step is not part of every Windows app build.
+
 App icon source of truth: `packaging\icon.svg`. After editing it, run
 `python packaging\brand_icon.py` (or just rebuild).
 

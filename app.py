@@ -407,7 +407,9 @@ def generate() -> Any:
             else:
                 decimate_error = (
                     "Decimation failed or splat-transform missing; "
-                    "install: npm install -g @playcanvas/splat-transform"
+                    "packaged builds include a helper - from source run "
+                    "packaging/compile-splat-transform.sh or "
+                    "npm install -g @playcanvas/splat-transform"
                 )
 
     spz_path = scene_dir / "splat.spz"

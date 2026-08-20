@@ -16,6 +16,10 @@ import sys
 
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
+# Allow importing packaging helpers when PyInstaller loads this spec.
+sys.path.insert(0, str(pathlib.Path(SPECPATH).resolve()))
+from splat_transform_bundle import splat_transform_binary  # noqa: E402
+
 block_cipher = None
 
 REPO = pathlib.Path(SPECPATH).resolve().parent
@@ -70,10 +74,12 @@ hiddenimports = (
     ]
 )
 
+_binaries = [splat_transform_binary(REPO)]
+
 a = Analysis(
     [str(REPO / "packaging" / "entry_batch.py")],
     pathex=[str(REPO)],
-    binaries=[],
+    binaries=_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

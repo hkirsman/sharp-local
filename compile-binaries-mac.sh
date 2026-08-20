@@ -29,6 +29,16 @@ echo "Installing project dependencies into .venv..."
 echo "Installing PyInstaller into .venv (if needed)..."
 "$ROOT/$PYTHON" -m pip install -q -U pyinstaller
 
+echo "Checking vendored splat-transform helper..."
+"$ROOT/$PYTHON" -c "
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path('packaging').resolve()))
+from splat_transform_bundle import splat_transform_binary
+src, _ = splat_transform_binary(Path('.').resolve())
+print(f'OK: {src}')
+"
+
 echo "Generating application icons..."
 "$ROOT/$PYTHON" packaging/brand_icon.py
 

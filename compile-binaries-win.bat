@@ -25,6 +25,10 @@ echo Installing PyInstaller into .venv (if needed^)...
 ".venv\Scripts\python.exe" -m pip install -q -U pyinstaller
 if errorlevel 1 exit /b 1
 
+echo Checking vendored splat-transform helper...
+".venv\Scripts\python.exe" -c "from pathlib import Path; import sys; sys.path.insert(0, str(Path('packaging').resolve())); from splat_transform_bundle import splat_transform_binary; src, _ = splat_transform_binary(Path('.').resolve()); print('OK:', src)"
+if errorlevel 1 exit /b 1
+
 echo Generating application icons...
 ".venv\Scripts\python.exe" packaging\brand_icon.py
 if errorlevel 1 exit /b 1
