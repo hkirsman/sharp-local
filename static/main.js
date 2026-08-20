@@ -226,11 +226,13 @@ async function loadSplatUrl(url) {
   root.style.inset = "0";
   viewerHost.appendChild(root);
 
+  // SHARP PLYs use OpenCV coords (x right, y down, z forward); scene center ~ (0, 0, +z).
+  // Match the capture camera: origin, look along +Z, up = -Y (upright like the source photo).
   viewer = new GaussianSplats3D.Viewer({
     rootElement: root,
-    cameraUp: [0, -1, -0.5],
-    initialCameraPosition: [-0.5, -2.5, 4],
-    initialCameraLookAt: [0, 0, 0.5],
+    cameraUp: [0, -1, 0],
+    initialCameraPosition: [0, 0, 0],
+    initialCameraLookAt: [0, 0, 2],
     sharedMemoryForWorkers: false,
     gpuAcceleratedSort: false,
     sphericalHarmonicsDegree: 0,
@@ -251,6 +253,12 @@ async function loadSplatUrl(url) {
     if (viewer.controls) {
       viewer.controls.minDistance = 0;
       viewer.controls.maxDistance = Infinity;
+      // Keep orbit axis on OpenCV "up" after the scene finishes loading.
+      if (viewer.camera) {
+        viewer.camera.up.set(0, -1, 0);
+      }
+      viewer.controls.target.set(0, 0, 2);
+      viewer.controls.update();
     }
   } catch (err) {
     await disposeViewer();
