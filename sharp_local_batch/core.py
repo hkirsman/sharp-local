@@ -192,9 +192,8 @@ def decimate_ply_splat_transform(
     exe_path = resolve_splat_transform_exe()
     if not exe_path:
         LOGGER.warning(
-            "splat-transform not found (bundled vendor binary or PATH); "
-            "rebuild helpers with packaging/compile-splat-transform.sh, "
-            "or install: npm install -g @playcanvas/splat-transform"
+            "splat-transform not found (bundled helper or PATH); "
+            "rebuild with packaging/compile-splat-transform.sh"
         )
         return False
     exe = str(exe_path)
@@ -593,10 +592,7 @@ def process_image_to_sidecar_ply(
             limit_applied = splat_count < splat_count_full
         else:
             decimate_error = (
-                "Decimation failed or splat-transform missing; "
-                "packaged builds include a helper - from source run "
-                "packaging/compile-splat-transform.sh or "
-                "npm install -g @playcanvas/splat-transform"
+                "Decimation failed or splat-transform helper missing"
             )
 
     spz_path: Optional[Path] = None
@@ -791,10 +787,7 @@ def _update_ply_sidecar_inner(
                 )
             else:
                 decimate_error = (
-                    "Decimation failed or splat-transform missing; "
-                    "packaged builds include a helper - from source run "
-                    "packaging/compile-splat-transform.sh or "
-                    "npm install -g @playcanvas/splat-transform"
+                    "Decimation failed or splat-transform helper missing"
                 )
 
         if export_ply_to_spz(ply_path, spz_target):
