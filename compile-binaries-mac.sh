@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 # Build both standalone bundles on macOS:
-#   dist/SharpBatch/SharpBatch   — Qt GUI + CLI batch tool
-#   dist/SharpWeb/SharpWeb       — Flask web UI (open http://127.0.0.1:8765)
+#   dist/SharpBatch/SharpBatch   - Qt GUI + CLI batch tool
+#   dist/SharpWeb/SharpWeb       - Flask web UI (open http://127.0.0.1:8765)
 #
-# Prerequisites: .venv already created and deps installed.
-#   Run ./bootstrap.sh first if you haven't yet.
-#   See docs/mac-setup.md for full developer setup instructions.
+# Creates .venv and installs deps if needed (same idea as compile-binaries-win.bat).
+# See docs/mac-setup.md for full developer setup instructions.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 not found on PATH." >&2
+  echo "Install Python 3.13 (or 3.11) - see docs/mac-setup.md" >&2
+  exit 1
+fi
+
 PYTHON=".venv/bin/python3"
 
 if [[ ! -x "$ROOT/$PYTHON" ]]; then
-  echo "ERROR: .venv not found at $ROOT/.venv" >&2
-  echo "Create the venv and install dependencies first — see docs/mac-setup.md" >&2
-  exit 1
+  echo "Creating .venv..."
+  python3 -m venv .venv
 fi
+
+echo "Installing project dependencies into .venv..."
+"$ROOT/$PYTHON" -m pip install -U pip
+"$ROOT/$PYTHON" -m pip install -e ./ml-sharp -r requirements.txt
 
 echo "Installing PyInstaller into .venv (if needed)..."
 "$ROOT/$PYTHON" -m pip install -q -U pyinstaller
@@ -37,13 +45,13 @@ cd "$ROOT"
 
 echo ""
 echo "========================================================================"
-echo "Build finished OK — version ${VERSION}."
+echo "Build finished OK - version ${VERSION}."
 echo ""
 echo "Batch tool (GUI/CLI):"
 echo "  $ROOT/dist/SharpBatch/SharpBatch"
 echo "  Folder: $ROOT/dist/SharpBatch/"
 echo ""
-echo "Web UI (Flask server — open http://127.0.0.1:8765 after starting):"
+echo "Web UI (Flask server - open http://127.0.0.1:8765 after starting):"
 echo "  $ROOT/dist/SharpWeb/SharpWeb"
 echo "  Folder: $ROOT/dist/SharpWeb/"
 echo ""
