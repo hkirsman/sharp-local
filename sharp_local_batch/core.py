@@ -78,7 +78,14 @@ def get_predictor() -> tuple[Any, str]:
         _device = "cpu"
 
     LOGGER.info("Loading SHARP checkpoint (first run may download weights) on %s", _device)
-    state_dict = torch.hub.load_state_dict_from_url(DEFAULT_MODEL_URL, progress=True)
+    # Frozen console=False builds can leave sys.stdout as None; torch progress writes to it.
+    from sharp_local_batch.logging_config import ensure_stdio
+
+    ensure_stdio()
+    progress = hasattr(sys.stdout, "write")
+    state_dict = torch.hub.load_state_dict_from_url(
+        DEFAULT_MODEL_URL, progress=progress
+    )
     predictor = create_predictor(PredictorParams())
     predictor.load_state_dict(state_dict)
     predictor.eval()
@@ -312,9 +319,8 @@ def effective_batch_scan_root(library_or_folder: Path) -> Path:
     """Directory to enumerate for images.
 
     Apple Photos stores downloadable originals under ``originals/`` (and older
-    libraries may use ``Masters/``) inside the ``.photoslibrary`` bundle — same
-    as ``backend/api.py`` (``PHOTO_DIRS`` / iCloud discovery). Scanning the
-    bundle root alone often misses those files.
+    libraries may use ``Masters/``) inside the ``.photoslibrary`` bundle.
+    Scanning the bundle root alone often misses those files.
     """
     try:
         p = library_or_folder.resolve()

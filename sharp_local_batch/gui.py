@@ -69,6 +69,8 @@ class SharpBatchGui:
         self._batch_start_time = 0.0
         self._watch: WatchController | None = None
         self._processed_session = 0
+        self._srv_running = False
+        self._srv_thread: threading.Thread | None = None
 
         self._build_ui()
 
@@ -284,6 +286,17 @@ class SharpBatchGui:
             command=self._on_watch_toggle,
         )
         self._watch_cb.pack(side=tk.LEFT, padx=(16, 0))
+
+        srv_row = ttk.Frame(root_f)
+        srv_row.pack(fill=tk.X, **pad)
+        self._srv_btn = ttk.Button(
+            srv_row,
+            text="Start server",
+            command=self._on_toggle_server,
+        )
+        self._srv_btn.pack(side=tk.LEFT)
+        self._srv_label = ttk.Label(srv_row, text="Server stopped", foreground="#666")
+        self._srv_label.pack(side=tk.LEFT, padx=(12, 0))
 
         row5 = ttk.Frame(root_f)
         row5.pack(fill=tk.X, **pad)
@@ -537,6 +550,55 @@ class SharpBatchGui:
         self._progress.configure(value=0)
         self._progress_label.config(text="Stopped")
         self._log_line("--- Stop: queue cleared ---")
+
+    def _on_toggle_server(self) -> None:
+        if self._srv_running:
+            from app import set_gui_log_sink
+
+            set_gui_log_sink(None)
+            self._srv_label.config(
+                text="Server running (logging disabled; restart app to stop)",
+                foreground="#666",
+            )
+            self._srv_btn.configure(state="disabled")
+            self._log_line(
+                "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
+            )
+            return
+        self._srv_running = True
+        self._srv_btn.config(text="Stop server")
+        port = 8765
+        url = f"http://127.0.0.1:{port}"
+        self._srv_label.config(text=f"Running: {url}", foreground="#2a2")
+        self._log_line(f"--- Server starting at {url} ---")
+
+        def _server_log_sink(text: str) -> None:
+            self.root.after(0, lambda t=text: self._log_line(t))
+
+        # Snapshot UI values on the Tk thread before starting the server thread.
+        limit_default = bool(self._limit_var.get())
+        max_s: int | None = None
+        try:
+            n = int(self._max_splats_var.get().strip())
+            if n >= 1:
+                max_s = n
+        except ValueError:
+            max_s = None
+
+        def _run() -> None:
+            from app import OUTPUTS_DIR, app, set_gui_log_sink, _suppress_flask_startup_noise
+
+            app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
+            app.config["DEFAULT_MAX_SPLATS"] = max_s
+            if limit_default and max_s is not None:
+                _server_log_sink(f"Splat limit: {max_s:,}")
+            set_gui_log_sink(_server_log_sink)
+            _suppress_flask_startup_noise()
+            OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+            app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
+
+        self._srv_thread = threading.Thread(target=_run, daemon=True)
+        self._srv_thread.start()
 
     def _on_watch_toggle(self) -> None:
         if self._watch_var.get():

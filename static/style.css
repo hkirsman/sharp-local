@@ -46,6 +46,16 @@ body {
   font-weight: 400;
 }
 
+.subtitle a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.subtitle a:hover {
+  color: var(--text);
+}
+
 .layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -284,6 +294,13 @@ body {
 
 .status-bar.error {
   color: #e57373;
+}
+
+.status-bar a.status-log-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  margin-left: 0.25rem;
 }
 
 .status-bar.working {

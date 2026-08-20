@@ -29,13 +29,34 @@ let currentFile = null;
 
 function setStatus(text, kind = "") {
   if (!statusBar) return;
-  statusBar.textContent = text;
+  statusBar.replaceChildren(document.createTextNode(text));
   statusBar.classList.remove("error", "working");
   if (kind) statusBar.classList.add(kind);
   const busy = kind === "working";
   if (statusWrap) {
     statusWrap.classList.toggle("is-busy", busy);
     statusWrap.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+}
+
+function setStatusError(message, logUrl) {
+  if (!statusBar) return;
+  statusBar.replaceChildren();
+  statusBar.appendChild(document.createTextNode(message));
+  if (logUrl) {
+    statusBar.appendChild(document.createTextNode(" "));
+    const a = document.createElement("a");
+    a.href = logUrl;
+    a.download = "sharp-web.log";
+    a.textContent = "Download logs";
+    a.className = "status-log-link";
+    statusBar.appendChild(a);
+  }
+  statusBar.classList.remove("working");
+  statusBar.classList.add("error");
+  if (statusWrap) {
+    statusWrap.classList.remove("is-busy");
+    statusWrap.setAttribute("aria-busy", "false");
   }
 }
 
@@ -320,7 +341,10 @@ btnGenerate.addEventListener("click", async () => {
     const res = await fetch("/api/generate", { method: "POST", body: fd });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setStatus(data.error || `Error ${res.status}`, "error");
+      setStatusError(
+        data.error || `Error ${res.status}`,
+        data.log_url || null
+      );
       btnGenerate.disabled = false;
       return;
     }

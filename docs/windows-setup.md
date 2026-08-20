@@ -41,7 +41,14 @@ From the repo root in **Command Prompt**, or by double‑clicking in Explorer:
 
 `compile-binaries-win.bat`
 
-This installs PyInstaller into `.venv` if needed, then runs `packaging\sharp_batch.spec` and `packaging\sharp_web.spec`. For unattended use (no `pause` at the end), run `compile-binaries-win.bat nopause`.
+This creates `.venv` if missing, installs project dependencies and PyInstaller,
+generates icons from `packaging\icon.svg`, then runs
+`packaging\sharp_batch.spec` and `packaging\sharp_web.spec`. No PowerShell
+`activate` step is required. For unattended use (no `pause` at the end), run
+`compile-binaries-win.bat nopause`.
+
+App icon source of truth: `packaging\icon.svg`. After editing it, run
+`python packaging\brand_icon.py` (or just rebuild).
 
 ## Build standalone batch `.exe`
 
@@ -69,7 +76,9 @@ Same venv and dependencies as above, then:
 .\.venv\Scripts\pyinstaller packaging/sharp_web.spec
 ```
 
-Output: `dist\SharpWeb\SharpWeb.exe`. Run it, then open **http://127.0.0.1:8765** in a browser.
+Output: `dist\SharpWeb\SharpWeb.exe`. Run it - a small window shows the URL
+(and can open the browser). Use **http://127.0.0.1:8765**. For server-only /
+scripting use `--headless`.
 
 When frozen, generated scenes are stored under `%LOCALAPPDATA%\SharpLocal\outputs\` (not next to the `.exe`). Zip `dist\SharpWeb\` the same way as the batch bundle (include `_internal`).
 

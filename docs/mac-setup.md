@@ -63,7 +63,12 @@ From the repo root with the venv **activated**:
 ./compile-binaries-mac.sh
 ```
 
-This installs PyInstaller into `.venv` if needed, then builds both specs. For use in CI (no interactive pause), the script exits cleanly on its own.
+This creates `.venv` if needed, installs deps and PyInstaller, generates app
+icons from `packaging/icon.svg`, builds both specs, and packages versioned zip
+archives under `dist/`.
+
+App icon source of truth: `packaging/icon.svg`. Re-run
+`python packaging/brand_icon.py` after editing the SVG.
 
 ## Build standalone batch bundle
 
@@ -73,16 +78,20 @@ python -m pip install pyinstaller
 pyinstaller packaging/sharp_batch.spec
 ```
 
-Output: `dist/SharpBatch/SharpBatch` (with `_internal/` beside it).
+On macOS, PyInstaller also emits `dist/SharpBatch.app`. Prefer
+`./compile-binaries-mac.sh`, which keeps only the `.app` inside
+`dist/SharpBatch/`.
 
-Run it directly or pass CLI flags:
+Double-click `dist/SharpBatch/SharpBatch.app`, or use CLI via the binary inside
+the bundle:
 
 ```bash
-./dist/SharpBatch/SharpBatch
-./dist/SharpBatch/SharpBatch --cli --folder ~/Photos --recursive
+./dist/SharpBatch/SharpBatch.app/Contents/MacOS/SharpBatch
+./dist/SharpBatch/SharpBatch.app/Contents/MacOS/SharpBatch --cli --folder ~/Photos --recursive
 ```
 
-To distribute, zip the entire `dist/SharpBatch/` folder (including `_internal/`) — recipients unzip the whole folder and run `SharpBatch` (no Python or Git required).
+To distribute, use the zip from the compile script, or zip the entire
+`dist/SharpBatch/` folder (recipients unzip and double-click `SharpBatch.app`).
 
 ## Build standalone web UI bundle
 
@@ -92,17 +101,21 @@ Same venv and dependencies as above, then:
 pyinstaller packaging/sharp_web.spec
 ```
 
-Output: `dist/SharpWeb/SharpWeb`. Run it, then open **http://127.0.0.1:8765** in a browser.
+Prefer `./compile-binaries-mac.sh` for the same `.app`-only layout under
+`dist/SharpWeb/`. Double-click `SharpWeb.app` - a small window shows the URL
+(and can open the browser). Then use **http://127.0.0.1:8765**. For
+server-only / scripting use `--headless`.
 
-When frozen, generated scenes are stored under `~/Library/Application Support/SharpLocal/outputs/` (not next to the binary). Zip `dist/SharpWeb/` the same way as the batch bundle.
+When frozen, generated scenes are stored under
+`~/Library/Application Support/SharpLocal/outputs/` (not next to the binary).
 
 ## Notes
 
 - **First inference** downloads the SHARP model checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`. Make sure you have internet access and enough disk space before the first run.
 - **Apple Silicon (MPS acceleration):** PyTorch uses the Metal Performance Shaders (MPS) backend automatically on Apple Silicon Macs. No extra setup is needed. Inference is substantially faster than CPU.
 - **Intel Mac:** inference runs on CPU. GPU acceleration via CUDA is not available on macOS.
-- **Gatekeeper / "can't be opened" warning:** bundles built locally are not notarised. To open them the first time, right-click → **Open** → **Open** in the dialog, or run `xattr -dr com.apple.quarantine dist/SharpBatch/` after building.
+- **Gatekeeper / "can't be opened" warning:** bundles built locally are not notarised. To open them the first time, right-click -> **Open** -> **Open** in the dialog, or run `xattr -dr com.apple.quarantine dist/SharpBatch/ dist/SharpWeb/` after building.
 - **Bundle size:** standalone bundles are large (PyTorch; the batch build also includes Qt). This is expected.
 - **Python version mismatch:** if you switch Python versions, delete `.venv` and rerun `bootstrap.sh` before rebuilding.
 - **_tkinter missing:** Homebrew Pythons may lack Tcl/Tk. Install `brew install python-tk@3.13` (match your Python minor) and recreate `.venv`, or use `--cli`, or rely on the PySide6 GUI (already in `requirements.txt`).
-- **macOS Photos Library:** the GUI can enable **Use system Photos library as source folder** (`~/Pictures/Photos Library.photoslibrary`). PLY output must be mirrored outside the bundle — enable **Mirror PLY output** and pick a target folder. For the CLI pass `--output-root /path/to/mirror`.
+- **macOS Photos Library:** the GUI can enable **Use system Photos library as source folder** (`~/Pictures/Photos Library.photoslibrary`). PLY output must be mirrored outside the bundle - enable **Mirror PLY output** and pick a target folder. For the CLI pass `--output-root /path/to/mirror`.
