@@ -16,7 +16,10 @@ block_cipher = None
 
 REPO = pathlib.Path(SPECPATH).resolve().parent
 
-datas = []
+datas = [
+    # App version (read by sharp_local_batch/_version.py at import time).
+    (str(REPO / "version.txt"), "."),
+]
 if (REPO / "ml-sharp" / "src").is_dir():
     datas.append((str(REPO / "ml-sharp" / "src"), "ml-sharp/src"))
 if (REPO / "static").is_dir():
