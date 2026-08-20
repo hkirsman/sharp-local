@@ -21,6 +21,94 @@ from sharp_local_batch.core import (
 )
 
 
+def _format_model_bytes(n: int) -> str:
+    if n <= 0:
+        return "-"
+    mb = n / (1024 * 1024)
+    if mb >= 1024:
+        gb = mb / 1024
+        return f"{round(gb) if gb >= 10 else f'{gb:.1f}'} GB"
+    if mb < 100:
+        return f"{mb:.1f} MB"
+    return f"{round(mb)} MB"
+
+
+def _ensure_model_ready_for_cli() -> int:
+    """Download the SHARP checkpoint synchronously if missing. Returns exit code."""
+    from sharp_local_batch.core import ensure_sharp_imports
+    from sharp_local_batch.model_download import get_download_manager
+
+    try:
+        ensure_sharp_imports()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    mgr = get_download_manager()
+    if mgr.is_ready():
+        status = mgr.status_dict()
+        total = int(status.get("bytes_total") or 0)
+        print(
+            f"SHARP model ready ({_format_model_bytes(total)}).",
+            flush=True,
+        )
+        return 0
+
+    print("SHARP model missing - downloading…", flush=True)
+    last_pct = -1
+
+    def _progress(done: int, total: int, percent: int) -> None:
+        nonlocal last_pct
+        if percent == last_pct and percent not in (0, 100):
+            return
+        last_pct = percent
+        if total > 0:
+            print(
+                f"  {percent}% · {_format_model_bytes(done)} / {_format_model_bytes(total)}",
+                flush=True,
+            )
+        else:
+            print(f"  {_format_model_bytes(done)}…", flush=True)
+
+    try:
+        mgr.download_sync(progress_cb=_progress)
+    except Exception as exc:
+        print(f"SHARP model download failed: {exc}", file=sys.stderr)
+        return 1
+    status = mgr.status_dict()
+    total = int(status.get("bytes_total") or 0)
+    print(f"SHARP model ready ({_format_model_bytes(total)}).", flush=True)
+    return 0
+
+
+def _download_model_main() -> int:
+    return _ensure_model_ready_for_cli()
+
+
+def _remove_model_main() -> int:
+    from sharp_local_batch.core import ensure_sharp_imports
+    from sharp_local_batch.model_download import get_download_manager
+
+    try:
+        ensure_sharp_imports()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    mgr = get_download_manager()
+    try:
+        result = mgr.delete_checkpoint()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    freed = int(result.get("deleted_bytes") or 0)
+    if freed > 0:
+        print(f"Removed SHARP model ({_format_model_bytes(freed)}).")
+    else:
+        print("No SHARP model checkpoint found to remove.")
+    return 0
+
+
 def _cli_main() -> int:
     from sharp_local_batch._version import __version__
 
@@ -33,12 +121,22 @@ def _cli_main() -> int:
         version=f"%(prog)s {__version__}",
     )
     p.add_argument(
+        "--download-model",
+        action="store_true",
+        help="Download the SHARP checkpoint (~2.6 GB) and exit",
+    )
+    p.add_argument(
+        "--remove-model",
+        action="store_true",
+        help="Delete the cached SHARP checkpoint and exit",
+    )
+    p.add_argument(
         "--folder",
         type=Path,
-        required=True,
+        required=False,
         help=(
             "Root path to scan (a directory of images, or a macOS "
-            "Photos Library.photoslibrary bundle — the latter requires --output-root)"
+            "Photos Library.photoslibrary bundle - the latter requires --output-root)"
         ),
     )
     p.add_argument(
@@ -98,6 +196,20 @@ def _cli_main() -> int:
     )
     args = p.parse_args()
 
+    if args.download_model and args.remove_model:
+        print(
+            "Use only one of --download-model or --remove-model.",
+            file=sys.stderr,
+        )
+        return 1
+    if args.download_model:
+        return _download_model_main()
+    if args.remove_model:
+        return _remove_model_main()
+
+    if args.folder is None:
+        p.error("--folder is required unless --download-model or --remove-model")
+
     if args.spz_only and not args.export_spz:
         print(
             "--spz-only cannot be combined with --no-export-spz "
@@ -131,6 +243,10 @@ def _cli_main() -> int:
         print(PHOTOS_LIBRARY_MIRROR_HELP, file=sys.stderr)
         print("Use: --output-root /path/outside/library", file=sys.stderr)
         return 1
+
+    model_rc = _ensure_model_ready_for_cli()
+    if model_rc != 0:
+        return model_rc
 
     jobs, total_found = scan_jobs(
         root,
@@ -219,7 +335,7 @@ Fix (pick one):
 
 
 def _is_expected_missing_qt(exc: ImportError) -> bool:
-    """True only when PySide6 (or a PySide6.* submodule) is absent — not other import bugs."""
+    """True only when PySide6 (or a PySide6.* submodule) is absent - not other import bugs."""
     if isinstance(exc, ModuleNotFoundError):
         name = (exc.name or "").lower()
         if name == "pyside6" or name.startswith("pyside6."):
@@ -233,6 +349,11 @@ def main() -> None:
 
         print(f"sharp-local-batch {__version__}")
         raise SystemExit(0)
+    # Top-level model helpers (no --cli required).
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--download-model", "--remove-model"):
+        if sys.argv[1] == "--download-model":
+            raise SystemExit(_download_model_main())
+        raise SystemExit(_remove_model_main())
     if len(sys.argv) >= 2 and sys.argv[1] == "--cli":
         sys.argv.pop(1)
         raise SystemExit(_cli_main())

@@ -17,87 +17,119 @@
       }
     </script>
   </head>
-  <body>
-    <header class="page-header">
-      <h1 class="title">__SHARP_LOCAL_WEB_TITLE__</h1>
-      <p class="subtitle">
-        Transform images into 3D Gaussian splats using
-        <a href="https://github.com/apple/ml-sharp" target="_blank" rel="noopener">Apple SHARP</a>.
-      </p>
-    </header>
-
-    <main class="layout">
-      <section class="panel panel-input" aria-label="Input">
-        <div class="drop-zone" id="dropZone">
-          <input type="file" id="fileInput" accept="image/*,.heic,.heif" hidden />
-          <div class="drop-zone-inner" id="dropInner">
-            <span class="drop-icon" aria-hidden="true">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-            </span>
-            <p class="drop-text">Drop images here or click to browse.</p>
-            <img id="previewImg" class="preview-img hidden" alt="" />
+  <body class="model-gate-active">
+    <div id="modelBanner" class="model-banner" role="status" aria-live="polite" hidden>
+      <div class="model-banner-inner">
+        <div class="model-banner-copy">
+          <p id="modelBannerMessage" class="model-banner-message">Checking SHARP model…</p>
+          <div id="modelBannerProgressWrap" class="model-banner-progress-wrap hidden">
+            <div class="model-banner-progress-track" aria-hidden="true">
+              <div id="modelBannerProgressBar" class="model-banner-progress-bar" style="width:0%"></div>
+            </div>
+            <span id="modelBannerProgressLabel" class="model-banner-progress-label"></span>
           </div>
         </div>
-        <div class="splat-limit-row" role="group" aria-label="Splat count limit">
-          <label class="splat-limit-check">
-            <input type="checkbox" id="limitSplatsCheck" />
-            <span>Limit splat count</span>
-          </label>
-          <input
-            type="number"
-            id="maxSplatsInput"
-            class="splat-limit-input"
-            min="1"
-            max="10000000"
-            value="500000"
-            step="1"
-            disabled
-            aria-label="Maximum splats when limiting"
-          />
-          <label class="splat-limit-check">
-            <input type="checkbox" id="exportSpzCheck" checked />
-            <span>Export SPZ</span>
-          </label>
+        <div class="model-banner-actions">
+          <button type="button" class="btn btn-primary btn-banner" id="btnModelDownload" hidden>
+            Download
+          </button>
+          <button type="button" class="btn btn-secondary btn-banner" id="btnModelRemove" hidden>
+            Remove
+          </button>
         </div>
-        <p class="hint splat-limit-hint">
-          When <strong>Limit splat count</strong> is on, a full-quality PLY is
-          written first, then
-          <a href="https://github.com/playcanvas/splat-transform" target="_blank" rel="noopener"
-            >splat-transform</a
-          >
-          (PlayCanvas) reduces it by pairwise merge.
+      </div>
+    </div>
+
+    <div class="app-shell" id="appShell">
+      <div
+        id="modelGateOverlay"
+        class="model-gate-overlay"
+        aria-hidden="false"
+      >
+        <p class="model-gate-hint">Checking SHARP model…</p>
+      </div>
+
+      <header class="page-header">
+        <h1 class="title">__SHARP_LOCAL_WEB_TITLE__</h1>
+        <p class="subtitle">
+          Transform images into 3D Gaussian splats using
+          <a href="https://github.com/apple/ml-sharp" target="_blank" rel="noopener">Apple SHARP</a>.
         </p>
-        <button type="button" class="btn btn-primary" id="btnGenerate" disabled>Generate</button>
-        <div class="status-wrap" id="statusWrap" role="group" aria-label="Status" aria-busy="false">
-          <div class="status-inner">
-            <span class="status-spinner" aria-hidden="true"></span>
-            <div class="status-bar" id="statusBar" role="status">Ready</div>
-          </div>
-        </div>
-        <p class="hint">Inference runs locally via Python (PyTorch). First run downloads the model.</p>
-      </section>
+      </header>
 
-      <section class="panel panel-output" aria-label="Preview">
-        <div class="viewer-shell">
-          <div id="viewerHost" class="viewer-host"></div>
-          <div id="viewerPlaceholder" class="viewer-placeholder">
-            <span class="spark" aria-hidden="true">✦</span>
-            <p>Generate to preview</p>
+      <main class="layout">
+        <section class="panel panel-input" aria-label="Input">
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" accept="image/*,.heic,.heif" hidden />
+            <div class="drop-zone-inner" id="dropInner">
+              <span class="drop-icon" aria-hidden="true">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              </span>
+              <p class="drop-text">Drop images here or click to browse.</p>
+              <img id="previewImg" class="preview-img hidden" alt="" />
+            </div>
           </div>
-        </div>
-        <p class="splat-info" id="splatInfo" aria-live="polite">Splats: —</p>
-        <label class="control-label" for="splatScale">Splat size</label>
-        <input type="range" id="splatScale" class="range" min="0.25" max="3" step="0.05" value="1" disabled />
-        <p class="hint hint-keys">Arrow keys: ↑ or → forward · ↓ or ← back (dolly along view)</p>
-        <select id="sceneSelect" class="select" aria-label="Previous scenes">
-          <option value="">Previous scenes…</option>
-        </select>
-        <button type="button" class="btn btn-secondary" id="btnFullscreen">Open Fullscreen</button>
-      </section>
-    </main>
+          <div class="splat-limit-row" role="group" aria-label="Splat count limit">
+            <label class="splat-limit-check">
+              <input type="checkbox" id="limitSplatsCheck" />
+              <span>Limit splat count</span>
+            </label>
+            <input
+              type="number"
+              id="maxSplatsInput"
+              class="splat-limit-input"
+              min="1"
+              max="10000000"
+              value="500000"
+              step="1"
+              disabled
+              aria-label="Maximum splats when limiting"
+            />
+            <label class="splat-limit-check">
+              <input type="checkbox" id="exportSpzCheck" checked />
+              <span>Export SPZ</span>
+            </label>
+          </div>
+          <p class="hint splat-limit-hint">
+            When <strong>Limit splat count</strong> is on, a full-quality PLY is
+            written first, then
+            <a href="https://github.com/playcanvas/splat-transform" target="_blank" rel="noopener"
+              >splat-transform</a
+            >
+            (PlayCanvas) reduces it by pairwise merge.
+          </p>
+          <button type="button" class="btn btn-primary" id="btnGenerate" disabled>Generate</button>
+          <div class="status-wrap" id="statusWrap" role="group" aria-label="Status" aria-busy="false">
+            <div class="status-inner">
+              <span class="status-spinner" aria-hidden="true"></span>
+              <div class="status-bar" id="statusBar" role="status">Ready</div>
+            </div>
+          </div>
+          <p class="hint">Inference runs locally via Python (PyTorch). Download the SHARP model first if prompted above.</p>
+        </section>
+
+        <section class="panel panel-output" aria-label="Preview">
+          <div class="viewer-shell">
+            <div id="viewerHost" class="viewer-host"></div>
+            <div id="viewerPlaceholder" class="viewer-placeholder">
+              <span class="spark" aria-hidden="true">✦</span>
+              <p>Generate to preview</p>
+            </div>
+          </div>
+          <p class="splat-info" id="splatInfo" aria-live="polite">Splats: —</p>
+          <label class="control-label" for="splatScale">Splat size</label>
+          <input type="range" id="splatScale" class="range" min="0.25" max="3" step="0.05" value="1" disabled />
+          <p class="hint hint-keys">Arrow keys: ↑ or → forward · ↓ or ← back (dolly along view)</p>
+          <select id="sceneSelect" class="select" aria-label="Previous scenes">
+            <option value="">Previous scenes…</option>
+          </select>
+          <button type="button" class="btn btn-secondary" id="btnFullscreen">Open Fullscreen</button>
+        </section>
+      </main>
+    </div>
 
     <script type="module" src="/main.js"></script>
   </body>

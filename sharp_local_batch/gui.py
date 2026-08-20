@@ -71,6 +71,8 @@ class SharpBatchGui:
         self._processed_session = 0
         self._srv_running = False
         self._srv_thread: threading.Thread | None = None
+        self._model_state = "idle"
+        self._model_busy_download = False
 
         self._build_ui()
 
@@ -80,6 +82,7 @@ class SharpBatchGui:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._apply_persisted_settings(load_batch_gui_settings())
+        self._poll_model_status()
 
     def _collect_persisted_settings(self) -> dict[str, object]:
         return {
@@ -151,6 +154,28 @@ class SharpBatchGui:
         pad = {"padx": 10, "pady": 4}
         root_f = ttk.Frame(self.root, padding=10)
         root_f.pack(fill=tk.BOTH, expand=True)
+
+        model_f = ttk.LabelFrame(root_f, text="SHARP model", padding=6)
+        model_f.pack(fill=tk.X, **pad)
+        self._model_status_label = ttk.Label(
+            model_f, text="Checking SHARP model…", wraplength=560
+        )
+        self._model_status_label.pack(anchor=tk.W)
+        self._model_progress = ttk.Progressbar(
+            model_f, mode="determinate", maximum=100, value=0
+        )
+        self._model_progress.pack(fill=tk.X, pady=(4, 0))
+        self._model_progress.pack_forget()
+        model_btns = ttk.Frame(model_f)
+        model_btns.pack(fill=tk.X, pady=(6, 0))
+        self._model_download_btn = ttk.Button(
+            model_btns, text="Download", command=self._on_model_download
+        )
+        self._model_download_btn.pack(side=tk.LEFT)
+        self._model_remove_btn = ttk.Button(
+            model_btns, text="Remove", command=self._on_model_remove
+        )
+        self._model_remove_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         row1 = ttk.Frame(root_f)
         row1.pack(fill=tk.X, **pad)
@@ -272,9 +297,8 @@ class SharpBatchGui:
 
         row4 = ttk.Frame(root_f)
         row4.pack(fill=tk.X, **pad)
-        ttk.Button(row4, text="Start batch", command=self._on_scan).pack(
-            side=tk.LEFT
-        )
+        self._scan_btn = ttk.Button(row4, text="Start batch", command=self._on_scan)
+        self._scan_btn.pack(side=tk.LEFT)
         ttk.Button(row4, text="Stop", command=self._on_stop).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(row4, text="Reset settings", command=self._on_reset_settings).pack(
             side=tk.LEFT, padx=(8, 0)
@@ -450,7 +474,161 @@ class SharpBatchGui:
             return False, None
         return lim, m if lim else None
 
+    @staticmethod
+    def _format_model_bytes(n: int) -> str:
+        if n <= 0:
+            return "-"
+        mb = n / (1024 * 1024)
+        if mb >= 1024:
+            gb = mb / 1024
+            return f"{round(gb) if gb >= 10 else f'{gb:.1f}'} GB"
+        if mb < 100:
+            return f"{mb:.1f} MB"
+        return f"{round(mb)} MB"
+
+    def _jobs_busy(self) -> bool:
+        if self._scan_running:
+            return True
+        if self._batch_total > 0 and self._batch_done < self._batch_total:
+            return True
+        if not self._job_q.empty():
+            return True
+        from sharp_local_batch.core import PREDICT_LOCK
+
+        return PREDICT_LOCK.locked()
+
+    def _sync_model_gated_widgets(self) -> None:
+        ready = self._model_state == "ready"
+        downloading = self._model_state == "downloading" or self._model_busy_download
+        busy = self._jobs_busy()
+        self._scan_btn.configure(state="normal" if ready else "disabled")
+        if not ready and self._watch_var.get():
+            self._watch_var.set(False)
+            self._stop_watch()
+        self._watch_cb.configure(state="normal" if ready else "disabled")
+        if not self._srv_running:
+            self._srv_btn.configure(state="normal" if ready else "disabled")
+        if downloading:
+            self._model_download_btn.configure(state="disabled")
+            self._model_remove_btn.configure(state="disabled")
+        elif self._model_state == "ready":
+            self._model_download_btn.pack_forget()
+            if not self._model_remove_btn.winfo_ismapped():
+                self._model_remove_btn.pack(side=tk.LEFT, padx=(8, 0))
+            self._model_remove_btn.configure(
+                state="disabled" if busy else "normal"
+            )
+        else:
+            if not self._model_download_btn.winfo_ismapped():
+                self._model_download_btn.pack(side=tk.LEFT)
+            self._model_remove_btn.pack_forget()
+            self._model_download_btn.configure(state="normal")
+            self._model_download_btn.configure(
+                text="Retry" if self._model_state == "error" else "Download"
+            )
+
+    def _apply_model_status(self, status: dict) -> None:
+        state = str(status.get("state") or "idle")
+        self._model_state = state
+        self._model_busy_download = state == "downloading"
+        total = int(status.get("bytes_total") or 0)
+        done = int(status.get("bytes_downloaded") or 0)
+        percent = int(status.get("percent") or 0)
+        size_exact = bool(status.get("size_exact"))
+        size_label = self._format_model_bytes(total) if total > 0 else "~2.6 GB"
+        if total > 0 and not size_exact and state != "ready":
+            size_label = f"~{size_label}"
+
+        if state == "ready":
+            self._model_status_label.config(
+                text=f"SHARP model ready · {size_label}"
+            )
+            self._model_progress.pack_forget()
+        elif state == "downloading":
+            left = (
+                f"{self._format_model_bytes(done)} / {self._format_model_bytes(total)}"
+                if total > 0
+                else self._format_model_bytes(done)
+            )
+            self._model_status_label.config(
+                text=f"Downloading SHARP model… {percent}% · {left}"
+            )
+            self._model_progress.configure(value=max(0, min(100, percent)))
+            if not self._model_progress.winfo_ismapped():
+                self._model_progress.pack(
+                    fill=tk.X, pady=(4, 0), after=self._model_status_label
+                )
+        elif state == "error":
+            err = status.get("error") or "unknown error"
+            self._model_status_label.config(text=f"Download failed: {err}")
+            self._model_progress.pack_forget()
+        else:
+            self._model_status_label.config(
+                text=(
+                    f"Download the SHARP model ({size_label}) before "
+                    "batch or server work."
+                )
+            )
+            self._model_progress.pack_forget()
+        self._sync_model_gated_widgets()
+
+    def _poll_model_status(self) -> None:
+        try:
+            from sharp_local_batch.model_download import get_download_manager
+
+            status = get_download_manager().status_dict()
+            self._apply_model_status(status)
+        except Exception as exc:
+            self._model_status_label.config(
+                text=f"Model status unavailable: {exc}"
+            )
+        try:
+            self.root.after(1000, self._poll_model_status)
+        except tk.TclError:
+            pass
+
+    def _on_model_download(self) -> None:
+        from sharp_local_batch.model_download import get_download_manager
+
+        self._model_busy_download = True
+        self._model_download_btn.configure(state="disabled")
+        self._model_status_label.config(text="Starting SHARP model download…")
+        mgr = get_download_manager()
+        mgr.ensure_download_async()
+        self._apply_model_status(mgr.status_dict())
+
+    def _on_model_remove(self) -> None:
+        if not messagebox.askyesno(
+            "Remove SHARP model?",
+            "Delete the downloaded SHARP checkpoint from this computer?\n\n"
+            "You can download it again later. Batch and server generation "
+            "will be blocked until then.",
+            default=messagebox.NO,
+        ):
+            return
+        from sharp_local_batch.model_download import get_download_manager
+
+        try:
+            result = get_download_manager().delete_checkpoint()
+        except RuntimeError as exc:
+            messagebox.showwarning("Remove model", str(exc))
+            return
+        freed = int(result.get("deleted_bytes") or 0)
+        note = (
+            f" Freed {self._format_model_bytes(freed)}."
+            if freed > 0
+            else ""
+        )
+        self._log_line(f"--- SHARP model removed.{note} ---")
+        self._apply_model_status(get_download_manager().status_dict())
+
     def _on_scan(self) -> None:
+        if self._model_state != "ready":
+            messagebox.showwarning(
+                "SHARP model",
+                "Download the SHARP model first (see the SHARP model section above).",
+            )
+            return
         ok, max_s = self._limit_options()
         if not ok:
             return
@@ -566,6 +744,12 @@ class SharpBatchGui:
                 "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
             )
             return
+        if self._model_state != "ready":
+            messagebox.showwarning(
+                "SHARP model",
+                "Download the SHARP model first before starting the HTTP server.",
+            )
+            return
         self._srv_running = True
         self._srv_btn.config(text="Stop server")
         port = 8765
@@ -603,6 +787,13 @@ class SharpBatchGui:
 
     def _on_watch_toggle(self) -> None:
         if self._watch_var.get():
+            if self._model_state != "ready":
+                messagebox.showwarning(
+                    "SHARP model",
+                    "Download the SHARP model first before watching a folder.",
+                )
+                self._watch_var.set(False)
+                return
             self._start_watch()
         else:
             self._stop_watch()

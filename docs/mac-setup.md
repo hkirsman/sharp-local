@@ -116,7 +116,11 @@ When frozen, generated scenes are stored under
 
 ## Notes
 
-- **First inference** downloads the SHARP model checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`. Make sure you have internet access and enough disk space before the first run.
+- Download the SHARP model checkpoint (~2.6 GB) explicitly before generating
+  (web **Download**, batch **SHARP model**, or
+  `python -m sharp_local_batch --download-model`). Weights land in
+  `~/.cache/torch/hub/checkpoints/`. Inference never starts a network fetch.
+  Use **Remove** / `--remove-model` to free disk space.
 - **Apple Silicon (MPS acceleration):** PyTorch uses the Metal Performance Shaders (MPS) backend automatically on Apple Silicon Macs. No extra setup is needed. Inference is substantially faster than CPU.
 - **Intel Mac:** inference runs on CPU. GPU acceleration via CUDA is not available on macOS.
 - **Gatekeeper / "can't be opened" warning:** bundles built locally are not notarised. To open them the first time, right-click -> **Open** -> **Open** in the dialog, or run `xattr -dr com.apple.quarantine dist/SharpBatch/ dist/SharpWeb/` after building.

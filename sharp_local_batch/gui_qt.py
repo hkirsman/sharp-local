@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Mapping
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -55,6 +55,7 @@ class _Bridge(QObject):
     job_finished = Signal(object)
     watch_enqueue = Signal(object)
     server_log = Signal(str)
+    model_status = Signal(object)
 
 
 class SharpBatchQtWindow(QMainWindow):
@@ -81,15 +82,46 @@ class SharpBatchQtWindow(QMainWindow):
         self._processed_session = 0
         self._snap_mirror_output: Path | None = None
         self._snap_input_root: Path | None = None
+        self._model_state = "idle"
+        self._model_busy_download = False
 
         self._bridge = _Bridge()
         self._bridge.job_finished.connect(self._on_job_done, Qt.QueuedConnection)
         self._bridge.watch_enqueue.connect(self._on_watch_enqueue, Qt.QueuedConnection)
         self._bridge.server_log.connect(self._on_server_log, Qt.QueuedConnection)
+        self._bridge.model_status.connect(self._on_model_status, Qt.QueuedConnection)
 
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
+
+        model_box = QGroupBox("SHARP model")
+        model_layout = QVBoxLayout(model_box)
+        model_layout.setContentsMargins(8, 10, 8, 8)
+        self._model_status_label = QLabel("Checking SHARP model…")
+        self._model_status_label.setWordWrap(True)
+        model_layout.addWidget(self._model_status_label)
+        self._model_progress = QProgressBar()
+        self._model_progress.setRange(0, 100)
+        self._model_progress.setValue(0)
+        self._model_progress.setVisible(False)
+        model_layout.addWidget(self._model_progress)
+        model_btns = QHBoxLayout()
+        self._model_download_btn = QPushButton("Download")
+        self._model_download_btn.setToolTip(
+            "Download the Apple SHARP checkpoint (~2.6 GB) into the local torch cache."
+        )
+        self._model_download_btn.clicked.connect(self._on_model_download)
+        model_btns.addWidget(self._model_download_btn)
+        self._model_remove_btn = QPushButton("Remove")
+        self._model_remove_btn.setToolTip(
+            "Delete the cached checkpoint to free disk space. Download again when needed."
+        )
+        self._model_remove_btn.clicked.connect(self._on_model_remove)
+        model_btns.addWidget(self._model_remove_btn)
+        model_btns.addStretch()
+        model_layout.addLayout(model_btns)
+        layout.addWidget(model_box)
 
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Folder"))
@@ -198,9 +230,9 @@ class SharpBatchQtWindow(QMainWindow):
         self._sync_remove_ply_widgets()
 
         row4 = QHBoxLayout()
-        scan_btn = QPushButton("Start batch")
-        scan_btn.clicked.connect(self._on_scan)
-        row4.addWidget(scan_btn)
+        self._scan_btn = QPushButton("Start batch")
+        self._scan_btn.clicked.connect(self._on_scan)
+        row4.addWidget(self._scan_btn)
         stop_btn = QPushButton("Stop")
         stop_btn.clicked.connect(self._on_stop)
         row4.addWidget(stop_btn)
@@ -274,6 +306,11 @@ class SharpBatchQtWindow(QMainWindow):
         threading.Thread(target=self._worker_loop, daemon=True).start()
 
         self._apply_persisted_settings(load_batch_gui_settings())
+        self._model_timer = QTimer(self)
+        self._model_timer.setInterval(1000)
+        self._model_timer.timeout.connect(self._poll_model_status)
+        self._model_timer.start()
+        self._poll_model_status()
 
     def _collect_persisted_settings(self) -> dict[str, object]:
         use_pl = (
@@ -475,8 +512,164 @@ class SharpBatchQtWindow(QMainWindow):
             return False
         return True
 
+    @staticmethod
+    def _format_model_bytes(n: int) -> str:
+        if n <= 0:
+            return "-"
+        mb = n / (1024 * 1024)
+        if mb >= 1024:
+            gb = mb / 1024
+            return f"{round(gb) if gb >= 10 else f'{gb:.1f}'} GB"
+        if mb < 100:
+            return f"{mb:.1f} MB"
+        return f"{round(mb)} MB"
+
+    def _jobs_busy(self) -> bool:
+        if self._batch_total > 0 and self._batch_done < self._batch_total:
+            return True
+        if not self._job_q.empty():
+            return True
+        from sharp_local_batch.core import PREDICT_LOCK
+
+        return PREDICT_LOCK.locked()
+
+    def _sync_model_gated_widgets(self) -> None:
+        ready = self._model_state == "ready"
+        downloading = self._model_state == "downloading" or self._model_busy_download
+        busy = self._jobs_busy()
+        self._scan_btn.setEnabled(ready)
+        # Allow unchecking watch even when not ready; only block enabling.
+        if not ready and self._watch_chk.isChecked():
+            self._watch_chk.blockSignals(True)
+            self._watch_chk.setChecked(False)
+            self._watch_chk.blockSignals(False)
+            if self._watch is not None:
+                self._watch.stop()
+                self._watch = None
+        self._watch_chk.setEnabled(ready or self._watch_chk.isChecked())
+        if not self._srv_running:
+            self._srv_btn.setEnabled(ready)
+        self._model_download_btn.setEnabled(
+            self._model_state in ("idle", "error") and not downloading
+        )
+        self._model_remove_btn.setEnabled(ready and not busy and not downloading)
+        if self._model_state == "ready":
+            self._model_download_btn.setVisible(False)
+            self._model_remove_btn.setVisible(True)
+        elif self._model_state == "downloading":
+            self._model_download_btn.setVisible(False)
+            self._model_remove_btn.setVisible(False)
+        else:
+            self._model_download_btn.setVisible(True)
+            self._model_download_btn.setText(
+                "Retry" if self._model_state == "error" else "Download"
+            )
+            self._model_remove_btn.setVisible(False)
+
+    @Slot()
+    def _poll_model_status(self) -> None:
+        try:
+            from sharp_local_batch.model_download import get_download_manager
+
+            status = get_download_manager().status_dict()
+        except Exception as exc:
+            self._model_status_label.setText(f"Model status unavailable: {exc}")
+            return
+        self._on_model_status(status)
+
+    @Slot(object)
+    def _on_model_status(self, status: object) -> None:
+        if not isinstance(status, dict):
+            return
+        state = str(status.get("state") or "idle")
+        self._model_state = state
+        self._model_busy_download = state == "downloading"
+        total = int(status.get("bytes_total") or 0)
+        done = int(status.get("bytes_downloaded") or 0)
+        percent = int(status.get("percent") or 0)
+        size_exact = bool(status.get("size_exact"))
+        size_label = (
+            self._format_model_bytes(total)
+            if total > 0
+            else "~2.6 GB"
+        )
+        if total > 0 and not size_exact and state != "ready":
+            size_label = f"~{size_label}"
+
+        if state == "ready":
+            self._model_status_label.setText(f"SHARP model ready · {size_label}")
+            self._model_progress.setVisible(False)
+        elif state == "downloading":
+            left = (
+                f"{self._format_model_bytes(done)} / {self._format_model_bytes(total)}"
+                if total > 0
+                else self._format_model_bytes(done)
+            )
+            self._model_status_label.setText(
+                f"Downloading SHARP model… {percent}% · {left}"
+            )
+            self._model_progress.setVisible(True)
+            self._model_progress.setValue(max(0, min(100, percent)))
+        elif state == "error":
+            err = status.get("error") or "unknown error"
+            self._model_status_label.setText(f"Download failed: {err}")
+            self._model_progress.setVisible(False)
+        else:
+            self._model_status_label.setText(
+                f"Download the SHARP model ({size_label}) before batch or server work."
+            )
+            self._model_progress.setVisible(False)
+        self._sync_model_gated_widgets()
+
+    @Slot()
+    def _on_model_download(self) -> None:
+        from sharp_local_batch.model_download import get_download_manager
+
+        self._model_busy_download = True
+        self._model_download_btn.setEnabled(False)
+        self._model_status_label.setText("Starting SHARP model download…")
+        mgr = get_download_manager()
+        mgr.ensure_download_async()
+        self._on_model_status(mgr.status_dict())
+
+    @Slot()
+    def _on_model_remove(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Remove SHARP model?",
+            "Delete the downloaded SHARP checkpoint from this computer?\n\n"
+            "You can download it again later. Batch and server generation "
+            "will be blocked until then.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        from sharp_local_batch.model_download import get_download_manager
+
+        try:
+            result = get_download_manager().delete_checkpoint()
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Remove model", str(exc))
+            return
+        freed = int(result.get("deleted_bytes") or 0)
+        note = (
+            f" Freed {self._format_model_bytes(freed)}."
+            if freed > 0
+            else ""
+        )
+        self._log_line(f"--- SHARP model removed.{note} ---")
+        self._poll_model_status()
+
     @Slot()
     def _on_scan(self) -> None:
+        if self._model_state != "ready":
+            QMessageBox.warning(
+                self,
+                "SHARP model",
+                "Download the SHARP model first (see the SHARP model section above).",
+            )
+            return
         if not self._limit_options_valid():
             return
         if self._apple_photos_bundle_mode():
@@ -595,6 +788,13 @@ class SharpBatchQtWindow(QMainWindow):
                 "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
             )
             return
+        if self._model_state != "ready":
+            QMessageBox.warning(
+                self,
+                "SHARP model",
+                "Download the SHARP model first before starting the HTTP server.",
+            )
+            return
         self._srv_running = True
         self._srv_btn.setText("Stop server")
         port = 8765
@@ -635,6 +835,16 @@ class SharpBatchQtWindow(QMainWindow):
     @Slot(bool)
     def _on_watch_toggled(self, checked: bool) -> None:
         if checked:
+            if self._model_state != "ready":
+                QMessageBox.warning(
+                    self,
+                    "SHARP model",
+                    "Download the SHARP model first before watching a folder.",
+                )
+                self._watch_chk.blockSignals(True)
+                self._watch_chk.setChecked(False)
+                self._watch_chk.blockSignals(False)
+                return
             self._start_watch()
         else:
             self._stop_watch()

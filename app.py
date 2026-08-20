@@ -49,6 +49,10 @@ from sharp_local_batch.core import (
     inference_device,
     predictor_loaded,
 )
+from sharp_local_batch.model_download import (
+    ModelNotReadyError,
+    get_download_manager,
+)
 
 def _dev_root() -> Path:
     return Path(__file__).resolve().parent
@@ -226,9 +230,31 @@ def index() -> Any:
     return Response(body, mimetype="text/html; charset=utf-8")
 
 
+def _model_status_payload() -> dict[str, Any]:
+    return get_download_manager().status_dict()
+
+
+def _model_not_ready_response() -> tuple[Any, int]:
+    """503 when checkpoint is missing or still downloading."""
+    status = _model_status_payload()
+    code = (
+        "model_downloading"
+        if status.get("state") == "downloading"
+        else "model_not_ready"
+    )
+    return jsonify({"error": code, "model": status}), 503
+
+
+def _require_model_ready() -> Optional[tuple[Any, int]]:
+    if get_download_manager().is_ready():
+        return None
+    return _model_not_ready_response()
+
+
 @app.route("/api/health")
 def api_health() -> Any:
     ok = ML_SHARP_SRC.is_dir()
+    model = _model_status_payload()
     payload: dict[str, Any] = {
         "ok": True,
         "app": "sharp-local-web",
@@ -236,12 +262,42 @@ def api_health() -> Any:
         "ml_sharp_path": str(ML_SHARP_SRC),
         "ml_sharp_present": ok,
         "model_loaded": predictor_loaded(),
+        "model_ready": model.get("state") == "ready",
+        "model_state": model.get("state"),
         "device": inference_device(),
     }
     if WEB_LOG_PATH is not None:
         payload["log_path"] = str(WEB_LOG_PATH)
         payload["log_url"] = "/api/logs"
     return jsonify(payload)
+
+
+@app.route("/api/model/status", methods=["GET"])
+def api_model_status() -> Any:
+    """SHARP checkpoint download status (idle / downloading / ready / error)."""
+    return jsonify(_model_status_payload())
+
+
+@app.route("/api/model/download", methods=["POST"])
+def api_model_download() -> Any:
+    """Start a background download of the SHARP checkpoint if not ready."""
+    mgr = get_download_manager()
+    mgr.ensure_download_async()
+    return jsonify(mgr.status_dict())
+
+
+@app.route("/api/model/delete", methods=["POST"])
+def api_model_delete() -> Any:
+    """Delete the cached SHARP checkpoint to free disk space."""
+    mgr = get_download_manager()
+    try:
+        result = mgr.delete_checkpoint()
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 409
+    status = mgr.status_dict()
+    status["deleted_bytes"] = result.get("deleted_bytes", 0)
+    status["deleted_paths"] = result.get("deleted_paths", [])
+    return jsonify(status)
 
 
 @app.route("/api/logs", methods=["GET"])
@@ -265,13 +321,21 @@ def download_logs() -> Any:
 
 @app.route("/health")
 def health() -> Any:
-    """HTTP splat service: readiness probe (GET /health)."""
+    """HTTP splat service: readiness probe (GET /health).
+
+    ``ok`` means the service process is up (ml-sharp present). Model weights
+    may still be missing - clients should check ``model_ready`` or accept
+    503 from ``POST /transform``.
+    """
     ok = ML_SHARP_SRC.is_dir()
+    model = _model_status_payload()
     return jsonify({
         "ok": ok,
         "kind": "splat",
         "name": "sharp-local",
         "version": SHARP_LOCAL_VERSION,
+        "model_ready": model.get("state") == "ready",
+        "model_state": model.get("state"),
     })
 
 
@@ -350,6 +414,10 @@ def generate() -> Any:
     if not upload.filename:
         return jsonify({"error": "Empty filename"}), 400
 
+    blocked = _require_model_ready()
+    if blocked is not None:
+        return blocked
+
     ensure_sharp_imports()
     from sharp.utils import io as sharp_io
     from sharp.utils.gaussians import save_ply
@@ -386,6 +454,12 @@ def generate() -> Any:
             gaussians = predict_image(predictor, image, f_px, device)
             ply_path = scene_dir / "splat.ply"
             save_ply(gaussians, f_px, (height, width), ply_path)
+    except ModelNotReadyError:
+        try:
+            shutil.rmtree(scene_dir, ignore_errors=True)
+        except OSError:
+            pass
+        return _model_not_ready_response()
     except Exception:
         LOGGER.exception("Inference failed for %s", input_path)
         try:
@@ -459,9 +533,13 @@ def transform() -> Any:
     if fmt not in ("ply", "spz"):
         fmt = "ply"
     name = Path(upload.filename).name
+    blocked = _require_model_ready()
+    if blocked is not None:
+        gui_log("  Failed - SHARP model not ready (download required)")
+        return blocked
     limit_on, max_splats, limit_err = _parse_splat_limit_form()
     if limit_err:
-        gui_log(f"  Failed — {limit_err}")
+        gui_log(f"  Failed - {limit_err}")
         return jsonify({"error": limit_err}), 400
     gui_log(f"Generating splat for {name}…")
     t0 = time.perf_counter()
@@ -475,11 +553,11 @@ def transform() -> Any:
         allowed = {e.lower() for e in sharp_io.get_supported_image_extensions()}
     except RuntimeError as e:
         LOGGER.warning("SHARP not ready for %s: %s", name, e)
-        gui_log("  Failed — service not ready")
+        gui_log("  Failed - service not ready")
         return jsonify({"error": "Service not ready"}), 503
 
     if ext not in allowed:
-        gui_log(f"  Failed — unsupported image type ({ext or 'none'})")
+        gui_log(f"  Failed - unsupported image type ({ext or 'none'})")
         return jsonify({"error": f"Unsupported image type: {ext or '(none)'}"}), 400
 
     import tempfile
@@ -507,9 +585,12 @@ def transform() -> Any:
                 gui_log(f"  Running SHARP ({width}x{height}, {device_str})…")
                 gaussians = predict_image(predictor, image, f_px, device)
                 save_ply(gaussians, f_px, (height, width), ply_path)
+        except ModelNotReadyError:
+            gui_log("  Failed - SHARP model not ready")
+            return _model_not_ready_response()
         except Exception:
             LOGGER.exception("Inference failed for %s", name)
-            gui_log(f"  Failed — {name} (see terminal for details)")
+            gui_log(f"  Failed - {name} (see terminal for details)")
             return jsonify(_inference_failed_payload()), 500
 
         splat_count_full = count_ply_vertices(ply_path)
