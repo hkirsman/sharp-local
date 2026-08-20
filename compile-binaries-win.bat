@@ -2,11 +2,24 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-if not exist ".venv\Scripts\python.exe" (
-  echo ERROR: .venv not found at "%cd%\.venv"
-  echo Create the venv and install dependencies first — see docs\windows-setup.md
+where python >nul 2>&1
+if errorlevel 1 (
+  echo ERROR: python not found on PATH.
+  echo Install Python 3.13 ^(or 3.11^) and check "Add python.exe to PATH" — see docs\windows-setup.md
   exit /b 1
 )
+
+if not exist ".venv\Scripts\python.exe" (
+  echo Creating .venv...
+  python -m venv .venv
+  if errorlevel 1 exit /b 1
+)
+
+echo Installing project dependencies into .venv...
+".venv\Scripts\python.exe" -m pip install -U pip
+if errorlevel 1 exit /b 1
+".venv\Scripts\python.exe" -m pip install -e ./ml-sharp -r requirements.txt
+if errorlevel 1 exit /b 1
 
 echo Installing PyInstaller into .venv (if needed^)...
 ".venv\Scripts\python.exe" -m pip install -q -U pyinstaller

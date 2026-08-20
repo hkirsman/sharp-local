@@ -41,7 +41,7 @@ From the repo root in **Command Prompt**, or by double‑clicking in Explorer:
 
 `compile-binaries-win.bat`
 
-This installs PyInstaller into `.venv` if needed, then runs `packaging\sharp_batch.spec` and `packaging\sharp_web.spec`. For unattended use (no `pause` at the end), run `compile-binaries-win.bat nopause`.
+This creates `.venv` if missing, installs project dependencies and PyInstaller, then runs `packaging\sharp_batch.spec` and `packaging\sharp_web.spec`. No PowerShell `activate` step is required. For unattended use (no `pause` at the end), run `compile-binaries-win.bat nopause`.
 
 ## Build standalone batch `.exe`
 
