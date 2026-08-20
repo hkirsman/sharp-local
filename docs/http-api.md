@@ -35,7 +35,9 @@ Synchronous: hold the connection until the splat file is ready.
 
 **Errors:** JSON `{ "error": "..." }` with 400, 413, 500, or 503.
 
-## Example
+## Examples
+
+### curl
 
 ```bash
 curl -s http://127.0.0.1:8765/health
@@ -43,6 +45,31 @@ curl -sS -o splat.ply \
   -F "file=@photo.jpg;type=image/jpeg" \
   http://127.0.0.1:8765/transform
 ```
+
+### Python
+
+Requires [requests](https://pypi.org/project/requests/) (`pip install requests`). Use a
+long timeout on `/transform` - inference can take minutes. Success is **raw bytes**;
+errors are JSON `{"error": "..."}`.
+
+```python
+import requests
+
+base = "http://127.0.0.1:8765"
+assert requests.get(f"{base}/health", timeout=3).json()["ok"]
+
+with open("photo.jpg", "rb") as f:
+    r = requests.post(
+        f"{base}/transform",
+        files={"file": ("photo.jpg", f, "image/jpeg")},
+        data={"format": "ply"},  # or "spz"
+        timeout=600,
+    )
+r.raise_for_status()
+open("splat.ply", "wb").write(r.content)
+```
+
+On failure, skip `raise_for_status()` and read `r.json()["error"]` instead.
 
 ## Notes
 
