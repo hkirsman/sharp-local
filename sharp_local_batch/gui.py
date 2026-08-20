@@ -557,13 +557,12 @@ class SharpBatchGui:
 
             set_gui_log_sink(None)
             self._srv_label.config(
-                text="Server stopped (restart app to re-bind port)",
+                text="Server running (logging disabled; restart app to stop)",
                 foreground="#666",
             )
             self._srv_btn.configure(state="disabled")
-            self._srv_running = False
             self._log_line(
-                "--- Server stopped (Flask cannot unbind; restart app to re-use port) ---"
+                "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
             )
             return
         self._srv_running = True
