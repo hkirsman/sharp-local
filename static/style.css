@@ -314,6 +314,16 @@ body {
   line-height: 1.35;
 }
 
+.hint a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.hint a:hover {
+  color: var(--text);
+}
+
 .viewer-shell {
   position: relative;
   flex: 1;
