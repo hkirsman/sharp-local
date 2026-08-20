@@ -267,6 +267,7 @@ class SharpBatchQtWindow(QMainWindow):
         srv_row.addWidget(self._srv_label, stretch=1)
         layout.addLayout(srv_row)
         self._srv_thread: threading.Thread | None = None
+        self._srv_httpd: object | None = None
         self._srv_running = False
 
         layout.addWidget(QLabel("Batch progress"))
@@ -806,17 +807,41 @@ class SharpBatchQtWindow(QMainWindow):
         self._progress_label.setText("Stopped")
         self._log_line("--- Stop: queue cleared ---")
 
+    def _stop_http_server(self, *, update_ui: bool = True) -> None:
+        from app import set_gui_log_sink
+
+        httpd = self._srv_httpd
+        self._srv_httpd = None
+        if httpd is not None:
+            shutdown = getattr(httpd, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception:
+                    pass
+        t = self._srv_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=2.0)
+        self._srv_thread = None
+        if httpd is not None:
+            close = getattr(httpd, "server_close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+        set_gui_log_sink(None)
+        self._srv_running = False
+        if update_ui:
+            self._srv_btn.setText("Start server")
+            self._srv_label.setText("Server stopped")
+            self._srv_label.setStyleSheet("color: #666;")
+            self._log_line("--- Server stopped ---")
+            self._sync_model_gated_widgets()
+
     def _on_toggle_server(self) -> None:
         if self._srv_running:
-            from app import set_gui_log_sink
-
-            set_gui_log_sink(None)
-            self._srv_label.setText("Server running (logging disabled; restart app to stop)")
-            self._srv_label.setStyleSheet("color: #666;")
-            self._srv_btn.setEnabled(False)
-            self._log_line(
-                "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
-            )
+            self._stop_http_server()
             return
         if self._model_state != "ready":
             QMessageBox.warning(
@@ -825,15 +850,17 @@ class SharpBatchQtWindow(QMainWindow):
                 "Download the SHARP model first before starting the HTTP server.",
             )
             return
-        self._srv_running = True
-        self._srv_btn.setText("Stop server")
+
+        from app import (
+            OUTPUTS_DIR,
+            app,
+            create_wsgi_server,
+            set_gui_log_sink,
+            _suppress_flask_startup_noise,
+        )
+
         port = 8765
         url = f"http://127.0.0.1:{port}"
-        self._srv_label.setText(f"Running: {url}")
-        self._srv_label.setStyleSheet("color: #2a2;")
-        self._log_line(f"--- Server starting at {url} ---")
-
-        # Snapshot UI values on the GUI thread before starting the server thread.
         limit_default = self._limit_chk.isChecked()
         max_s: int | None = None
         try:
@@ -843,19 +870,37 @@ class SharpBatchQtWindow(QMainWindow):
         except ValueError:
             max_s = None
 
+        _suppress_flask_startup_noise()
+        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
+        app.config["DEFAULT_MAX_SPLATS"] = max_s
+        try:
+            httpd = create_wsgi_server("127.0.0.1", port)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Server",
+                f"Could not start server on {url}:\n{exc}",
+            )
+            return
+
+        self._srv_httpd = httpd
+        self._srv_running = True
+        self._srv_btn.setText("Stop server")
+        self._srv_label.setText(f"Running: {url}")
+        self._srv_label.setStyleSheet("color: #2a2;")
+        self._log_line(f"--- Server starting at {url} ---")
+        if limit_default and max_s is not None:
+            self._log_line(f"Splat limit: {max_s:,}")
+
         def _run() -> None:
-            from app import OUTPUTS_DIR, app, set_gui_log_sink, _suppress_flask_startup_noise
-
-            app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
-            app.config["DEFAULT_MAX_SPLATS"] = max_s
-            if limit_default and max_s is not None:
-                self._bridge.server_log.emit(f"Splat limit: {max_s:,}")
             set_gui_log_sink(self._bridge.server_log.emit)
-            _suppress_flask_startup_noise()
-            OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-            app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
+            try:
+                httpd.serve_forever()
+            finally:
+                set_gui_log_sink(None)
 
-        self._srv_thread = threading.Thread(target=_run, daemon=True)
+        self._srv_thread = threading.Thread(target=_run, name="sharp-http-server", daemon=True)
         self._srv_thread.start()
 
     @Slot(str)
@@ -1072,6 +1117,7 @@ class SharpBatchQtWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self._persist_gui_settings()
         self._stop_watch()
+        self._stop_http_server(update_ui=False)
         self._quit_app.set()
         event.accept()
 
