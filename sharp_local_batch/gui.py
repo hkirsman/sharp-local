@@ -71,6 +71,7 @@ class SharpBatchGui:
         self._processed_session = 0
         self._srv_running = False
         self._srv_thread: threading.Thread | None = None
+        self._srv_httpd: object | None = None
         self._model_state = "idle"
         self._model_busy_download = False
         self._model_busy_cancel = False
@@ -762,19 +763,40 @@ class SharpBatchGui:
         self._progress_label.config(text="Stopped")
         self._log_line("--- Stop: queue cleared ---")
 
+    def _stop_http_server(self, *, update_ui: bool = True) -> None:
+        from app import set_gui_log_sink
+
+        httpd = self._srv_httpd
+        self._srv_httpd = None
+        if httpd is not None:
+            shutdown = getattr(httpd, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception:
+                    pass
+        t = self._srv_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=2.0)
+        self._srv_thread = None
+        if httpd is not None:
+            close = getattr(httpd, "server_close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+        set_gui_log_sink(None)
+        self._srv_running = False
+        if update_ui:
+            self._srv_btn.config(text="Start server")
+            self._srv_label.config(text="Server stopped", foreground="#666")
+            self._log_line("--- Server stopped ---")
+            self._sync_model_gated_widgets()
+
     def _on_toggle_server(self) -> None:
         if self._srv_running:
-            from app import set_gui_log_sink
-
-            set_gui_log_sink(None)
-            self._srv_label.config(
-                text="Server running (logging disabled; restart app to stop)",
-                foreground="#666",
-            )
-            self._srv_btn.configure(state="disabled")
-            self._log_line(
-                "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
-            )
+            self._stop_http_server()
             return
         if self._model_state != "ready":
             messagebox.showwarning(
@@ -782,17 +804,17 @@ class SharpBatchGui:
                 "Download the SHARP model first before starting the HTTP server.",
             )
             return
-        self._srv_running = True
-        self._srv_btn.config(text="Stop server")
+
+        from app import (
+            OUTPUTS_DIR,
+            app,
+            create_wsgi_server,
+            set_gui_log_sink,
+            _suppress_flask_startup_noise,
+        )
+
         port = 8765
         url = f"http://127.0.0.1:{port}"
-        self._srv_label.config(text=f"Running: {url}", foreground="#2a2")
-        self._log_line(f"--- Server starting at {url} ---")
-
-        def _server_log_sink(text: str) -> None:
-            self.root.after(0, lambda t=text: self._log_line(t))
-
-        # Snapshot UI values on the Tk thread before starting the server thread.
         limit_default = bool(self._limit_var.get())
         max_s: int | None = None
         try:
@@ -802,19 +824,40 @@ class SharpBatchGui:
         except ValueError:
             max_s = None
 
+        _suppress_flask_startup_noise()
+        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
+        app.config["DEFAULT_MAX_SPLATS"] = max_s
+        try:
+            httpd = create_wsgi_server("127.0.0.1", port)
+        except OSError as exc:
+            messagebox.showerror(
+                "Server",
+                f"Could not start server on {url}:\n{exc}",
+            )
+            return
+
+        def _server_log_sink(text: str) -> None:
+            self.root.after(0, lambda t=text: self._log_line(t))
+
+        self._srv_httpd = httpd
+        self._srv_running = True
+        self._srv_btn.config(text="Stop server")
+        self._srv_label.config(text=f"Running: {url}", foreground="#2a2")
+        self._log_line(f"--- Server starting at {url} ---")
+        if limit_default and max_s is not None:
+            self._log_line(f"Splat limit: {max_s:,}")
+
         def _run() -> None:
-            from app import OUTPUTS_DIR, app, set_gui_log_sink, _suppress_flask_startup_noise
-
-            app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
-            app.config["DEFAULT_MAX_SPLATS"] = max_s
-            if limit_default and max_s is not None:
-                _server_log_sink(f"Splat limit: {max_s:,}")
             set_gui_log_sink(_server_log_sink)
-            _suppress_flask_startup_noise()
-            OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-            app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
+            try:
+                httpd.serve_forever()
+            finally:
+                set_gui_log_sink(None)
 
-        self._srv_thread = threading.Thread(target=_run, daemon=True)
+        self._srv_thread = threading.Thread(
+            target=_run, name="sharp-http-server", daemon=True
+        )
         self._srv_thread.start()
 
     def _on_watch_toggle(self) -> None:
@@ -1017,6 +1060,7 @@ class SharpBatchGui:
     def _on_close(self) -> None:
         self._persist_gui_settings()
         self._stop_watch()
+        self._stop_http_server(update_ui=False)
         self._quit_app.set()
         self.root.destroy()
 

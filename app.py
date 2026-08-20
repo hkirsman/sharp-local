@@ -156,6 +156,13 @@ def _suppress_flask_startup_noise() -> None:
         pass
 
 
+def create_wsgi_server(host: str, port: int) -> Any:
+    """Bind a threaded Werkzeug server. Call ``serve_forever()`` / ``shutdown()``."""
+    from werkzeug.serving import make_server
+
+    return make_server(host, port, app, threaded=True)
+
+
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
