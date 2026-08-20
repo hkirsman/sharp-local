@@ -36,7 +36,7 @@ echo "Building SharpBatch..."
 rm -rf dist/SharpBatch dist/SharpBatch.app
 "$ROOT/$PYTHON" -m PyInstaller --noconfirm packaging/sharp_batch.spec
 # PyInstaller emits dist/SharpBatch/ (bare binary + _internal) and
-# dist/SharpBatch.app at the dist root. Keep only the .app, like Vaela.
+# dist/SharpBatch.app at the dist root. Keep only the .app.
 rm -rf dist/SharpBatch
 mkdir -p dist/SharpBatch
 mv dist/SharpBatch.app dist/SharpBatch/

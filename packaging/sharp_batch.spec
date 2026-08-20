@@ -126,7 +126,7 @@ if sys.platform == "darwin":
         coll,
         name="SharpBatch.app",
         icon=str(ICON),
-        bundle_identifier="io.vaela.sharplocal.batch",
+        bundle_identifier="io.sharplocal.batch",
         version=_app_version,
         info_plist={
             "CFBundleDisplayName": "Sharp Local batch",

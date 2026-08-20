@@ -128,7 +128,7 @@ if sys.platform == "darwin":
         coll,
         name="SharpWeb.app",
         icon=str(ICON),
-        bundle_identifier="io.vaela.sharplocal.web",
+        bundle_identifier="io.sharplocal.web",
         version=_app_version,
         info_plist={
             "CFBundleDisplayName": "Sharp Local web",

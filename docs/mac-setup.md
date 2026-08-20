@@ -67,9 +67,8 @@ This creates `.venv` if needed, installs deps and PyInstaller, generates app
 icons from `packaging/icon.svg`, builds both specs, and packages versioned zip
 archives under `dist/`.
 
-App icon source of truth: `packaging/icon.svg` (Vaela keeps its SVG at
-`resources/icons/logo.svg` and writes `.icns`/`.ico` into `backend/packaging/`).
-Re-run `python packaging/brand_icon.py` after editing the SVG.
+App icon source of truth: `packaging/icon.svg`. Re-run
+`python packaging/brand_icon.py` after editing the SVG.
 
 ## Build standalone batch bundle
 
@@ -81,7 +80,7 @@ pyinstaller packaging/sharp_batch.spec
 
 On macOS, PyInstaller also emits `dist/SharpBatch.app`. Prefer
 `./compile-binaries-mac.sh`, which keeps only the `.app` inside
-`dist/SharpBatch/` (same layout as Vaela's `VaelaServer.app`).
+`dist/SharpBatch/`.
 
 Double-click `dist/SharpBatch/SharpBatch.app`, or use CLI via the binary inside
 the bundle:

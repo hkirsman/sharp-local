@@ -4,9 +4,8 @@ Source of truth: packaging/icon.svg
 Outputs: packaging/sharp-local.icns (macOS), packaging/sharp-local.ico (Windows),
 and favicons under static/.
 
-In Vaela the design SVG lives at resources/icons/logo.svg and generated
-.icns/.ico files live in backend/packaging/. Here packaging assets stay under
-packaging/.
+Edit packaging/icon.svg, then re-run this script (or rebuild) to refresh
+.icns/.ico and favicons.
 """
 
 from __future__ import annotations
