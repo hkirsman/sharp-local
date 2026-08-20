@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build both standalone bundles on macOS:
-#   dist/SharpBatch/SharpBatch   - Qt GUI + CLI batch tool
-#   dist/SharpWeb/SharpWeb       - Flask web UI (open http://127.0.0.1:8765)
+#   dist/SharpBatch/SharpBatch.app  - Qt GUI + CLI batch tool
+#   dist/SharpWeb/SharpWeb.app      - Flask web UI (open http://127.0.0.1:8765)
 #
 # Creates .venv and installs deps if needed (same idea as compile-binaries-win.bat).
 # See docs/mac-setup.md for full developer setup instructions.
@@ -29,30 +29,46 @@ echo "Installing project dependencies into .venv..."
 echo "Installing PyInstaller into .venv (if needed)..."
 "$ROOT/$PYTHON" -m pip install -q -U pyinstaller
 
+echo "Generating application icons..."
+"$ROOT/$PYTHON" packaging/brand_icon.py
+
 echo "Building SharpBatch..."
-"$ROOT/$PYTHON" -m PyInstaller packaging/sharp_batch.spec
+rm -rf dist/SharpBatch dist/SharpBatch.app
+"$ROOT/$PYTHON" -m PyInstaller --noconfirm packaging/sharp_batch.spec
+# PyInstaller emits dist/SharpBatch/ (bare binary + _internal) and
+# dist/SharpBatch.app at the dist root. Keep only the .app, like Vaela.
+rm -rf dist/SharpBatch
+mkdir -p dist/SharpBatch
+mv dist/SharpBatch.app dist/SharpBatch/
 
 echo "Building SharpWeb..."
-"$ROOT/$PYTHON" -m PyInstaller packaging/sharp_web.spec
+rm -rf dist/SharpWeb dist/SharpWeb.app
+"$ROOT/$PYTHON" -m PyInstaller --noconfirm packaging/sharp_web.spec
+rm -rf dist/SharpWeb
+mkdir -p dist/SharpWeb
+mv dist/SharpWeb.app dist/SharpWeb/
 
 VERSION=$("$ROOT/$PYTHON" -c "from sharp_local_batch._version import __version__; print(__version__)")
 
 echo "Packaging archives..."
-cd "$ROOT/dist"
-zip -r "SharpBatch-${VERSION}-mac.zip" SharpBatch/
-zip -r "SharpWeb-${VERSION}-mac.zip" SharpWeb/
-cd "$ROOT"
+(
+  cd "$ROOT/dist"
+  rm -f "SharpBatch-${VERSION}-mac.zip" "SharpWeb-${VERSION}-mac.zip"
+  zip -r -y -q "SharpBatch-${VERSION}-mac.zip" SharpBatch
+  zip -r -y -q "SharpWeb-${VERSION}-mac.zip" SharpWeb
+)
 
 echo ""
 echo "========================================================================"
 echo "Build finished OK - version ${VERSION}."
 echo ""
 echo "Batch tool (GUI/CLI):"
-echo "  $ROOT/dist/SharpBatch/SharpBatch"
+echo "  $ROOT/dist/SharpBatch/SharpBatch.app"
 echo "  Folder: $ROOT/dist/SharpBatch/"
+echo "  CLI: $ROOT/dist/SharpBatch/SharpBatch.app/Contents/MacOS/SharpBatch --cli ..."
 echo ""
 echo "Web UI (Flask server - open http://127.0.0.1:8765 after starting):"
-echo "  $ROOT/dist/SharpWeb/SharpWeb"
+echo "  $ROOT/dist/SharpWeb/SharpWeb.app"
 echo "  Folder: $ROOT/dist/SharpWeb/"
 echo ""
 echo "Archives (upload these to the GitHub release):"
@@ -60,6 +76,6 @@ echo "  $ROOT/dist/SharpBatch-${VERSION}-mac.zip"
 echo "  $ROOT/dist/SharpWeb-${VERSION}-mac.zip"
 echo ""
 echo "NOTE: bundles built locally are not notarised. To open them the first"
-echo "  time: right-click → Open → Open, or run:"
-echo "  xattr -dr com.apple.quarantine dist/SharpBatch/"
+echo "  time: right-click -> Open -> Open, or run:"
+echo "  xattr -dr com.apple.quarantine dist/SharpBatch/ dist/SharpWeb/"
 echo "========================================================================"

@@ -25,6 +25,10 @@ echo Installing PyInstaller into .venv (if needed^)...
 ".venv\Scripts\python.exe" -m pip install -q -U pyinstaller
 if errorlevel 1 exit /b 1
 
+echo Generating application icons...
+".venv\Scripts\python.exe" packaging\brand_icon.py
+if errorlevel 1 exit /b 1
+
 echo Building SharpBatch...
 ".venv\Scripts\python.exe" -m PyInstaller packaging\sharp_batch.spec
 if errorlevel 1 exit /b 1

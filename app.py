@@ -192,7 +192,10 @@ def _parse_export_spz_form() -> bool:
 
 @app.route("/favicon.ico")
 def favicon() -> Any:
-    """Avoid 404 spam when the browser requests a default favicon."""
+    """Serve the packaged favicon (falls back to empty if missing)."""
+    path = STATIC_DIR / "favicon.ico"
+    if path.is_file():
+        return send_file(path, mimetype="image/x-icon")
     return "", 204
 
 
