@@ -22,6 +22,10 @@ FALLBACK_BYTES = int(2.6 * 1024 * 1024 * 1024)
 _USER_AGENT = "SharpLocal/1.0"
 
 
+class _DownloadCancelled(Exception):
+    """Internal: ``cancel_download()`` interrupted the fetch."""
+
+
 class ModelNotReadyError(RuntimeError):
     """Raised when inference is attempted before the checkpoint is on disk."""
 
@@ -89,6 +93,8 @@ class ModelDownloadManager:
         self._remote_probed = False
         self._known_total = 0
         self._probe_thread: Optional[threading.Thread] = None
+        self._cancel = threading.Event()
+        self._active_resp: Optional[Any] = None
         self.refresh_local_state()
 
     def refresh_local_state(self) -> None:
@@ -107,6 +113,9 @@ class ModelDownloadManager:
                 self._known_total = size
                 self._message = "SHARP model ready"
                 self._error = None
+            elif self._state == "error":
+                # Keep last error until disk is ready or a new download starts.
+                return
             else:
                 self._state = "idle"
                 self._percent = 0
@@ -118,8 +127,6 @@ class ModelDownloadManager:
                     self._bytes_total = self._known_total
                     self._size_exact = True
                 self._message = ""
-                # Keep last error until a successful refresh clears it via ready,
-                # or a new download starts.
 
     def is_ready(self) -> bool:
         self.refresh_local_state()
@@ -186,6 +193,7 @@ class ModelDownloadManager:
                 return
             if self._thread is not None and self._thread.is_alive():
                 return
+            self._cancel.clear()
             self._state = "downloading"
             self._error = None
             self._message = "Starting SHARP model download…"
@@ -216,6 +224,7 @@ class ModelDownloadManager:
                 return
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError("A model download is already in progress")
+            self._cancel.clear()
             self._state = "downloading"
             self._error = None
             self._message = "Downloading SHARP model…"
@@ -229,7 +238,13 @@ class ModelDownloadManager:
                 self._size_exact = False
         try:
             self._download_file(progress_cb=progress_cb)
+        except _DownloadCancelled:
+            self._note_cancelled()
+            raise RuntimeError("Download cancelled")
         except Exception as exc:
+            if self._cancel.is_set():
+                self._note_cancelled()
+                raise RuntimeError("Download cancelled") from exc
             with self._lock:
                 self._state = "error"
                 self._error = str(exc)
@@ -298,6 +313,53 @@ class ModelDownloadManager:
             "deleted_paths": deleted_paths,
         }
 
+    def cancel_download(self) -> Dict[str, Any]:
+        """Stop an in-progress download and discard the partial tmp file.
+
+        Idempotent: if nothing is downloading, returns current status.
+        State stays ``downloading`` until the worker exits, then ``idle``.
+        """
+        resp: Optional[Any] = None
+        with self._lock:
+            if self._state == "downloading":
+                self._cancel.set()
+                self._message = "Cancelling download…"
+                resp = self._active_resp
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
+        return self.status_dict()
+
+    def _cleanup_partial_download(self) -> None:
+        tmp = checkpoint_tmp_path()
+        if tmp.is_file():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+    def _note_cancelled(self) -> None:
+        self._cleanup_partial_download()
+        with self._lock:
+            self._state = "idle"
+            self._percent = 0
+            self._bytes_downloaded = 0
+            self._error = None
+            self._message = ""
+            if self._known_total > 0:
+                self._bytes_total = self._known_total
+                self._size_exact = True
+            else:
+                self._bytes_total = FALLBACK_BYTES
+                self._size_exact = False
+        LOGGER.info("SHARP model download cancelled")
+
+    def _raise_if_cancelled(self) -> None:
+        if self._cancel.is_set():
+            raise _DownloadCancelled()
+
     def _run_download(self) -> None:
         try:
             self._download_file()
@@ -307,13 +369,18 @@ class ModelDownloadManager:
                 self._message = "SHARP model ready"
                 self._error = None
             LOGGER.info("SHARP model download complete")
+        except _DownloadCancelled:
+            self._note_cancelled()
         except Exception as exc:
-            LOGGER.exception("SHARP model download failed")
-            with self._lock:
-                self._state = "error"
-                self._error = str(exc)
-                self._message = f"Download failed: {exc}"
-                self._percent = 0
+            if self._cancel.is_set():
+                self._note_cancelled()
+            else:
+                LOGGER.exception("SHARP model download failed")
+                with self._lock:
+                    self._state = "error"
+                    self._error = str(exc)
+                    self._message = f"Download failed: {exc}"
+                    self._percent = 0
         finally:
             with self._lock:
                 self._thread = None
@@ -334,35 +401,49 @@ class ModelDownloadManager:
             except OSError:
                 pass
 
+        self._raise_if_cancelled()
         req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
         with urllib.request.urlopen(req, timeout=120) as resp:
-            total = int(resp.headers.get("Content-Length") or 0)
             with self._lock:
-                if total > 0:
-                    self._known_total = total
-                    self._bytes_total = total
-                    self._size_exact = True
-                else:
-                    total = self._bytes_total or FALLBACK_BYTES
-                self._message = "Downloading SHARP model…"
-            downloaded = 0
-            with open(tmp, "wb") as out:
-                while True:
-                    chunk = resp.read(1024 * 256)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    downloaded += len(chunk)
-                    percent = (
-                        min(99, int(100 * downloaded / total)) if total > 0 else 0
-                    )
-                    with self._lock:
-                        self._bytes_downloaded = downloaded
-                        self._percent = percent
-                        if self._bytes_total < downloaded:
-                            self._bytes_total = downloaded
-                    if progress_cb is not None:
-                        progress_cb(downloaded, total, percent)
+                self._active_resp = resp
+            try:
+                self._raise_if_cancelled()
+                total = int(resp.headers.get("Content-Length") or 0)
+                with self._lock:
+                    if total > 0:
+                        self._known_total = total
+                        self._bytes_total = total
+                        self._size_exact = True
+                    else:
+                        total = self._bytes_total or FALLBACK_BYTES
+                    if not self._cancel.is_set():
+                        self._message = "Downloading SHARP model…"
+                downloaded = 0
+                with open(tmp, "wb") as out:
+                    while True:
+                        self._raise_if_cancelled()
+                        chunk = resp.read(1024 * 256)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        downloaded += len(chunk)
+                        percent = (
+                            min(99, int(100 * downloaded / total))
+                            if total > 0
+                            else 0
+                        )
+                        with self._lock:
+                            self._bytes_downloaded = downloaded
+                            self._percent = percent
+                            if self._bytes_total < downloaded:
+                                self._bytes_total = downloaded
+                        if progress_cb is not None:
+                            progress_cb(downloaded, total, percent)
+            finally:
+                with self._lock:
+                    if self._active_resp is resp:
+                        self._active_resp = None
+        self._raise_if_cancelled()
         tmp.replace(dest)
         size = dest.stat().st_size
         with self._lock:

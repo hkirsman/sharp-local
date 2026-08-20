@@ -84,6 +84,7 @@ class SharpBatchQtWindow(QMainWindow):
         self._snap_input_root: Path | None = None
         self._model_state = "idle"
         self._model_busy_download = False
+        self._model_busy_cancel = False
 
         self._bridge = _Bridge()
         self._bridge.job_finished.connect(self._on_job_done, Qt.QueuedConnection)
@@ -113,6 +114,13 @@ class SharpBatchQtWindow(QMainWindow):
         )
         self._model_download_btn.clicked.connect(self._on_model_download)
         model_btns.addWidget(self._model_download_btn)
+        self._model_cancel_btn = QPushButton("Cancel")
+        self._model_cancel_btn.setToolTip(
+            "Stop the download. Progress is discarded; you can start again later."
+        )
+        self._model_cancel_btn.clicked.connect(self._on_model_cancel)
+        self._model_cancel_btn.setVisible(False)
+        model_btns.addWidget(self._model_cancel_btn)
         self._model_remove_btn = QPushButton("Remove")
         self._model_remove_btn.setToolTip(
             "Delete the cached checkpoint to free disk space. Download again when needed."
@@ -555,12 +563,16 @@ class SharpBatchQtWindow(QMainWindow):
         self._model_remove_btn.setEnabled(ready and not busy and not downloading)
         if self._model_state == "ready":
             self._model_download_btn.setVisible(False)
+            self._model_cancel_btn.setVisible(False)
             self._model_remove_btn.setVisible(True)
-        elif self._model_state == "downloading":
+        elif downloading:
             self._model_download_btn.setVisible(False)
+            self._model_cancel_btn.setVisible(True)
+            self._model_cancel_btn.setEnabled(not self._model_busy_cancel)
             self._model_remove_btn.setVisible(False)
         else:
             self._model_download_btn.setVisible(True)
+            self._model_cancel_btn.setVisible(False)
             self._model_download_btn.setText(
                 "Retry" if self._model_state == "error" else "Download"
             )
@@ -584,6 +596,8 @@ class SharpBatchQtWindow(QMainWindow):
         state = str(status.get("state") or "idle")
         self._model_state = state
         self._model_busy_download = state == "downloading"
+        if state != "downloading":
+            self._model_busy_cancel = False
         total = int(status.get("bytes_total") or 0)
         done = int(status.get("bytes_downloaded") or 0)
         percent = int(status.get("percent") or 0)
@@ -600,14 +614,18 @@ class SharpBatchQtWindow(QMainWindow):
             self._model_status_label.setText(f"SHARP model ready · {size_label}")
             self._model_progress.setVisible(False)
         elif state == "downloading":
-            left = (
-                f"{self._format_model_bytes(done)} / {self._format_model_bytes(total)}"
-                if total > 0
-                else self._format_model_bytes(done)
-            )
-            self._model_status_label.setText(
-                f"Downloading SHARP model… {percent}% · {left}"
-            )
+            msg = str(status.get("message") or "")
+            if "cancel" in msg.lower():
+                self._model_status_label.setText(msg)
+            else:
+                left = (
+                    f"{self._format_model_bytes(done)} / {self._format_model_bytes(total)}"
+                    if total > 0
+                    else self._format_model_bytes(done)
+                )
+                self._model_status_label.setText(
+                    f"Downloading SHARP model… {percent}% · {left}"
+                )
             self._model_progress.setVisible(True)
             self._model_progress.setValue(max(0, min(100, percent)))
         elif state == "error":
@@ -630,6 +648,18 @@ class SharpBatchQtWindow(QMainWindow):
         self._model_status_label.setText("Starting SHARP model download…")
         mgr = get_download_manager()
         mgr.ensure_download_async()
+        self._on_model_status(mgr.status_dict())
+
+    @Slot()
+    def _on_model_cancel(self) -> None:
+        from sharp_local_batch.model_download import get_download_manager
+
+        self._model_busy_cancel = True
+        self._model_cancel_btn.setEnabled(False)
+        self._model_status_label.setText("Cancelling download…")
+        mgr = get_download_manager()
+        mgr.cancel_download()
+        self._log_line("--- SHARP model download cancelled ---")
         self._on_model_status(mgr.status_dict())
 
     @Slot()

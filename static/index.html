@@ -33,6 +33,9 @@
           <button type="button" class="btn btn-primary btn-banner" id="btnModelDownload" hidden>
             Download
           </button>
+          <button type="button" class="btn btn-secondary btn-banner" id="btnModelCancel" hidden title="Stop the download. Progress is discarded.">
+            Cancel
+          </button>
           <button type="button" class="btn btn-secondary btn-banner" id="btnModelRemove" hidden>
             Remove
           </button>
@@ -149,6 +152,7 @@
             var msg = document.getElementById("modelBannerMessage");
             var hint = document.querySelector(".model-gate-hint");
             var btn = document.getElementById("btnModelDownload");
+            var btnCancel = document.getElementById("btnModelCancel");
             var overlay = document.getElementById("modelGateOverlay");
             if (!msg) return;
             var banner = document.getElementById("modelBanner");
@@ -162,7 +166,25 @@
               }
               if (hint) hint.hidden = true;
             } else if (data.state === "downloading") {
-              msg.textContent = "Downloading Apple SHARP model…";
+              msg.textContent = data.message
+                ? data.message
+                : "Downloading Apple SHARP model…";
+              if (btnCancel) {
+                btnCancel.hidden = false;
+                btnCancel.disabled = /cancel/i.test(String(data.message || ""));
+                if (!btnCancel.dataset.earlyBound) {
+                  btnCancel.dataset.earlyBound = "1";
+                  btnCancel.addEventListener("click", function () {
+                    if (window.__sharpModelUiReady) return;
+                    btnCancel.disabled = true;
+                    fetch("/api/model/cancel", { method: "POST" }).catch(
+                      function () {
+                        btnCancel.disabled = false;
+                      }
+                    );
+                  });
+                }
+              }
               if (hint) {
                 hint.hidden = false;
                 hint.textContent =

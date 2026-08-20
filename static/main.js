@@ -22,6 +22,7 @@ const modelBannerProgressWrap = document.getElementById("modelBannerProgressWrap
 const modelBannerProgressBar = document.getElementById("modelBannerProgressBar");
 const modelBannerProgressLabel = document.getElementById("modelBannerProgressLabel");
 const btnModelDownload = document.getElementById("btnModelDownload");
+const btnModelCancel = document.getElementById("btnModelCancel");
 const btnModelRemove = document.getElementById("btnModelRemove");
 const modelGateOverlay = document.getElementById("modelGateOverlay");
 
@@ -114,6 +115,7 @@ function renderModelStatus(data) {
   if (!modelBanner || !modelBannerMessage) return;
   window.__sharpModelUiReady = true;
   const state = (data && data.state) || "idle";
+  const wasDownloading = modelState === "downloading";
   modelState = state;
   modelBanner.hidden = false;
   modelBanner.classList.remove("is-ready", "is-error", "is-downloading");
@@ -125,6 +127,7 @@ function renderModelStatus(data) {
     : "~2.6 GB";
 
   if (btnModelDownload) btnModelDownload.hidden = true;
+  if (btnModelCancel) btnModelCancel.hidden = true;
   if (btnModelRemove) btnModelRemove.hidden = true;
   if (modelBannerProgressWrap) modelBannerProgressWrap.classList.add("hidden");
 
@@ -139,10 +142,15 @@ function renderModelStatus(data) {
     }
   } else if (state === "downloading") {
     modelBanner.classList.add("is-downloading");
+    const cancelling = /cancel/i.test(String((data && data.message) || ""));
     modelBannerMessage.replaceChildren();
-    modelBannerMessage.append("Downloading ");
-    modelBannerMessage.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
-    modelBannerMessage.append(" model…");
+    if (cancelling) {
+      modelBannerMessage.append(String(data.message));
+    } else {
+      modelBannerMessage.append("Downloading ");
+      modelBannerMessage.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+      modelBannerMessage.append(" model…");
+    }
     if (modelBannerProgressWrap) {
       modelBannerProgressWrap.classList.remove("hidden");
       if (modelBannerProgressBar) {
@@ -152,6 +160,10 @@ function renderModelStatus(data) {
         const left = total > 0 ? `${formatBytes(done)} / ${formatBytes(total)}` : formatBytes(done);
         modelBannerProgressLabel.textContent = `${percent}% · ${left}`;
       }
+    }
+    if (btnModelCancel) {
+      btnModelCancel.hidden = false;
+      btnModelCancel.disabled = cancelling;
     }
   } else if (state === "error") {
     modelBanner.classList.add("is-error");
@@ -170,6 +182,9 @@ function renderModelStatus(data) {
       btnModelDownload.hidden = false;
       btnModelDownload.disabled = false;
       btnModelDownload.textContent = "Download";
+    }
+    if (wasDownloading) {
+      setStatus("Download cancelled.");
     }
   }
 
@@ -221,6 +236,25 @@ async function startModelDownload() {
   }
 }
 
+async function cancelModelDownload() {
+  if (btnModelCancel) btnModelCancel.disabled = true;
+  try {
+    const res = await fetch("/api/model/cancel", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || `Cancel failed (${res.status})`, "error");
+      if (btnModelCancel) btnModelCancel.disabled = false;
+      return;
+    }
+    setStatus("Cancelling download - progress will be discarded.");
+    renderModelStatus(data);
+  } catch (err) {
+    console.error(err);
+    setStatus("Network error cancelling download", "error");
+    if (btnModelCancel) btnModelCancel.disabled = false;
+  }
+}
+
 async function removeModel() {
   const ok = window.confirm(
     "Remove the downloaded Apple SHARP model from this computer?\n\n" +
@@ -252,6 +286,11 @@ async function removeModel() {
 if (btnModelDownload) {
   btnModelDownload.addEventListener("click", () => {
     startModelDownload();
+  });
+}
+if (btnModelCancel) {
+  btnModelCancel.addEventListener("click", () => {
+    cancelModelDownload();
   });
 }
 if (btnModelRemove) {

@@ -73,6 +73,7 @@ class SharpBatchGui:
         self._srv_thread: threading.Thread | None = None
         self._model_state = "idle"
         self._model_busy_download = False
+        self._model_busy_cancel = False
 
         self._build_ui()
 
@@ -172,6 +173,9 @@ class SharpBatchGui:
             model_btns, text="Download", command=self._on_model_download
         )
         self._model_download_btn.pack(side=tk.LEFT)
+        self._model_cancel_btn = ttk.Button(
+            model_btns, text="Cancel", command=self._on_model_cancel
+        )
         self._model_remove_btn = ttk.Button(
             model_btns, text="Remove", command=self._on_model_remove
         )
@@ -509,9 +513,18 @@ class SharpBatchGui:
         if not self._srv_running:
             self._srv_btn.configure(state="normal" if ready else "disabled")
         if downloading:
-            self._model_download_btn.configure(state="disabled")
-            self._model_remove_btn.configure(state="disabled")
+            if self._model_download_btn.winfo_ismapped():
+                self._model_download_btn.pack_forget()
+            if self._model_remove_btn.winfo_ismapped():
+                self._model_remove_btn.pack_forget()
+            if not self._model_cancel_btn.winfo_ismapped():
+                self._model_cancel_btn.pack(side=tk.LEFT)
+            self._model_cancel_btn.configure(
+                state="disabled" if self._model_busy_cancel else "normal"
+            )
         elif self._model_state == "ready":
+            if self._model_cancel_btn.winfo_ismapped():
+                self._model_cancel_btn.pack_forget()
             self._model_download_btn.pack_forget()
             if not self._model_remove_btn.winfo_ismapped():
                 self._model_remove_btn.pack(side=tk.LEFT, padx=(8, 0))
@@ -519,6 +532,8 @@ class SharpBatchGui:
                 state="disabled" if busy else "normal"
             )
         else:
+            if self._model_cancel_btn.winfo_ismapped():
+                self._model_cancel_btn.pack_forget()
             if not self._model_download_btn.winfo_ismapped():
                 self._model_download_btn.pack(side=tk.LEFT)
             self._model_remove_btn.pack_forget()
@@ -531,6 +546,8 @@ class SharpBatchGui:
         state = str(status.get("state") or "idle")
         self._model_state = state
         self._model_busy_download = state == "downloading"
+        if state != "downloading":
+            self._model_busy_cancel = False
         total = int(status.get("bytes_total") or 0)
         done = int(status.get("bytes_downloaded") or 0)
         percent = int(status.get("percent") or 0)
@@ -545,14 +562,18 @@ class SharpBatchGui:
             )
             self._model_progress.pack_forget()
         elif state == "downloading":
-            left = (
-                f"{self._format_model_bytes(done)} / {self._format_model_bytes(total)}"
-                if total > 0
-                else self._format_model_bytes(done)
-            )
-            self._model_status_label.config(
-                text=f"Downloading SHARP model… {percent}% · {left}"
-            )
+            msg = str(status.get("message") or "")
+            if "cancel" in msg.lower():
+                self._model_status_label.config(text=msg)
+            else:
+                left = (
+                    f"{self._format_model_bytes(done)} / {self._format_model_bytes(total)}"
+                    if total > 0
+                    else self._format_model_bytes(done)
+                )
+                self._model_status_label.config(
+                    text=f"Downloading SHARP model… {percent}% · {left}"
+                )
             self._model_progress.configure(value=max(0, min(100, percent)))
             if not self._model_progress.winfo_ismapped():
                 self._model_progress.pack(
@@ -595,6 +616,17 @@ class SharpBatchGui:
         self._model_status_label.config(text="Starting SHARP model download…")
         mgr = get_download_manager()
         mgr.ensure_download_async()
+        self._apply_model_status(mgr.status_dict())
+
+    def _on_model_cancel(self) -> None:
+        from sharp_local_batch.model_download import get_download_manager
+
+        self._model_busy_cancel = True
+        self._model_cancel_btn.configure(state="disabled")
+        self._model_status_label.config(text="Cancelling download…")
+        mgr = get_download_manager()
+        mgr.cancel_download()
+        self._log_line("--- SHARP model download cancelled ---")
         self._apply_model_status(mgr.status_dict())
 
     def _on_model_remove(self) -> None:

@@ -51,6 +51,14 @@ them explicitly (web UI banner, batch **SHARP model** group, or CLI
 
 Start a background download if not already ready. Returns the same status JSON.
 
+### POST `/api/model/cancel`
+
+Stop an in-progress download and discard the partial `.pt.tmp` file. Returns
+the same status JSON. Idempotent if nothing is downloading.
+
+`state` stays `downloading` (with `message` "Cancelling download…") until the
+worker exits, then `idle`. Cancel is not a download `error`.
+
 ### POST `/api/model/delete`
 
 Unload the in-memory predictor (if any) and delete the allowlisted checkpoint
@@ -117,6 +125,7 @@ status object.
 curl -s http://127.0.0.1:8765/health
 curl -s http://127.0.0.1:8765/api/model/status
 curl -sS -X POST http://127.0.0.1:8765/api/model/download
+curl -sS -X POST http://127.0.0.1:8765/api/model/cancel
 curl -sS -o splat.ply \
   -F "file=@photo.jpg;type=image/jpeg" \
   http://127.0.0.1:8765/transform

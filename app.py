@@ -286,6 +286,13 @@ def api_model_download() -> Any:
     return jsonify(mgr.status_dict())
 
 
+@app.route("/api/model/cancel", methods=["POST"])
+def api_model_cancel() -> Any:
+    """Stop an in-progress checkpoint download. No-op if not downloading."""
+    mgr = get_download_manager()
+    return jsonify(mgr.cancel_download())
+
+
 @app.route("/api/model/delete", methods=["POST"])
 def api_model_delete() -> Any:
     """Delete the cached SHARP checkpoint to free disk space."""
