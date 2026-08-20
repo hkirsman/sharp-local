@@ -575,19 +575,22 @@ class SharpBatchGui:
         def _server_log_sink(text: str) -> None:
             self.root.after(0, lambda t=text: self._log_line(t))
 
+        # Snapshot UI values on the Tk thread before starting the server thread.
+        limit_default = bool(self._limit_var.get())
+        max_s: int | None = None
+        try:
+            n = int(self._max_splats_var.get().strip())
+            if n >= 1:
+                max_s = n
+        except ValueError:
+            max_s = None
+
         def _run() -> None:
             from app import OUTPUTS_DIR, app, set_gui_log_sink, _suppress_flask_startup_noise
 
-            app.config["DEFAULT_LIMIT_SPLATS"] = bool(self._limit_var.get())
-            max_s: int | None = None
-            try:
-                n = int(self._max_splats_var.get().strip())
-                if n >= 1:
-                    max_s = n
-            except ValueError:
-                max_s = None
+            app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
             app.config["DEFAULT_MAX_SPLATS"] = max_s
-            if self._limit_var.get() and max_s is not None:
+            if limit_default and max_s is not None:
                 _server_log_sink(f"Splat limit: {max_s:,}")
             set_gui_log_sink(_server_log_sink)
             _suppress_flask_startup_noise()
