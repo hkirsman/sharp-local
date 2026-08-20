@@ -79,6 +79,10 @@ function setModelGateHint(el, state) {
   if (!el) return;
   el.replaceChildren();
   // Idle: banner already explains - keep overlay silent so text is not repeated.
+  if (state === "loading") {
+    el.append("Loading…");
+    return;
+  }
   if (state === "downloading") {
     el.append("Download in progress - workspace unlocks when it finishes.");
     return;
@@ -108,6 +112,7 @@ function syncModelGate(state) {
 
 function renderModelStatus(data) {
   if (!modelBanner || !modelBannerMessage) return;
+  window.__sharpModelUiReady = true;
   const state = (data && data.state) || "idle";
   modelState = state;
   modelBanner.hidden = false;
@@ -185,6 +190,10 @@ function renderModelStatus(data) {
 
 async function loadModelStatus() {
   try {
+    const early = window.__sharpModelStatusEarly;
+    if (early && !window.__sharpModelUiReady) {
+      renderModelStatus(early);
+    }
     const res = await fetch("/api/model/status");
     if (!res.ok) return;
     const data = await res.json();
@@ -676,5 +685,6 @@ async function checkHealth() {
 }
 
 checkHealth();
+// Banner/overlay already show "Loading…" from HTML until this resolves.
 loadModelStatus();
 refreshScenes();

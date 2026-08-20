@@ -21,7 +21,7 @@
     <div id="modelBanner" class="model-banner" role="status" aria-live="polite" hidden>
       <div class="model-banner-inner">
         <div class="model-banner-copy">
-          <p id="modelBannerMessage" class="model-banner-message">Checking SHARP model…</p>
+          <p id="modelBannerMessage" class="model-banner-message"></p>
           <div id="modelBannerProgressWrap" class="model-banner-progress-wrap hidden">
             <div class="model-banner-progress-track" aria-hidden="true">
               <div id="modelBannerProgressBar" class="model-banner-progress-bar" style="width:0%"></div>
@@ -46,7 +46,7 @@
         class="model-gate-overlay"
         aria-hidden="false"
       >
-        <p class="model-gate-hint" hidden></p>
+        <p class="model-gate-hint">Loading…</p>
       </div>
 
       <header class="page-header">
@@ -135,6 +135,98 @@
       </main>
     </div>
 
+    <script>
+      // Fetch model status before the heavy Three.js module finishes loading,
+      // so "Loading…" is replaced as soon as the API answers.
+      (function () {
+        fetch("/api/model/status")
+          .then(function (res) {
+            return res.ok ? res.json() : null;
+          })
+          .then(function (data) {
+            if (!data || window.__sharpModelUiReady) return;
+            window.__sharpModelStatusEarly = data;
+            var msg = document.getElementById("modelBannerMessage");
+            var hint = document.querySelector(".model-gate-hint");
+            var btn = document.getElementById("btnModelDownload");
+            var overlay = document.getElementById("modelGateOverlay");
+            if (!msg) return;
+            var banner = document.getElementById("modelBanner");
+            if (banner) banner.hidden = false;
+            if (data.state === "ready") {
+              msg.textContent = "Apple SHARP model ready";
+              document.body.classList.remove("model-gate-active");
+              if (overlay) {
+                overlay.hidden = true;
+                overlay.setAttribute("aria-hidden", "true");
+              }
+              if (hint) hint.hidden = true;
+            } else if (data.state === "downloading") {
+              msg.textContent = "Downloading Apple SHARP model…";
+              if (hint) {
+                hint.hidden = false;
+                hint.textContent =
+                  "Download in progress - workspace unlocks when it finishes.";
+              }
+            } else if (data.state === "error") {
+              msg.textContent = data.error
+                ? "Download failed: " + data.error
+                : "Download failed. Try again.";
+              if (btn) {
+                btn.hidden = false;
+                btn.textContent = "Retry";
+              }
+              if (hint) {
+                hint.hidden = false;
+                hint.textContent =
+                  "Download failed. Use Retry in the banner above.";
+              }
+            } else {
+              // Full explain copy lands when main.js loads; enable Download now.
+              msg.textContent =
+                "Download the Apple SHARP model to generate Gaussian splats.";
+              if (btn) {
+                btn.hidden = false;
+                btn.textContent = "Download";
+                if (!btn.dataset.earlyBound) {
+                  btn.dataset.earlyBound = "1";
+                  btn.addEventListener("click", function () {
+                    if (window.__sharpModelUiReady) return;
+                    btn.disabled = true;
+                    fetch("/api/model/download", { method: "POST" })
+                      .then(function (r) {
+                        return r.json().then(function (d) {
+                          return { ok: r.ok, d: d };
+                        });
+                      })
+                      .then(function (x) {
+                        if (!x.ok) {
+                          btn.disabled = false;
+                          return;
+                        }
+                        window.__sharpModelStatusEarly = x.d;
+                        msg.textContent = "Downloading Apple SHARP model…";
+                        if (hint) {
+                          hint.hidden = false;
+                          hint.textContent =
+                            "Download in progress - workspace unlocks when it finishes.";
+                        }
+                      })
+                      .catch(function () {
+                        btn.disabled = false;
+                      });
+                  });
+                }
+              }
+              if (hint) {
+                hint.hidden = true;
+                hint.textContent = "";
+              }
+            }
+          })
+          .catch(function () {});
+      })();
+    </script>
     <script type="module" src="/main.js"></script>
   </body>
 </html>

@@ -88,6 +88,7 @@ class ModelDownloadManager:
         self._thread: Optional[threading.Thread] = None
         self._remote_probed = False
         self._known_total = 0
+        self._probe_thread: Optional[threading.Thread] = None
         self.refresh_local_state()
 
     def refresh_local_state(self) -> None:
@@ -130,20 +131,32 @@ class ModelDownloadManager:
             return self._state == "downloading"
 
     def _ensure_remote_size(self) -> None:
+        """Kick off a background size probe; never block status on the network."""
         with self._lock:
             if self._remote_probed or self._state in ("downloading", "ready"):
                 return
-            need_probe = self._known_total <= 0
-        if not need_probe:
-            with self._lock:
+            if self._known_total > 0:
                 self._remote_probed = True
-            return
-        remote = _fetch_remote_bytes(default_model_url())
+                return
+            if getattr(self, "_probe_thread", None) is not None and self._probe_thread.is_alive():
+                return
+            self._probe_thread = threading.Thread(
+                target=self._probe_remote_size_bg,
+                name="sharp-model-size-probe",
+                daemon=True,
+            )
+            self._probe_thread.start()
+
+    def _probe_remote_size_bg(self) -> None:
+        try:
+            remote = _fetch_remote_bytes(default_model_url())
+        except Exception:
+            remote = 0
         with self._lock:
             self._remote_probed = True
             if remote > 0:
                 self._known_total = remote
-                if self._state != "ready":
+                if self._state not in ("ready", "downloading"):
                     self._bytes_total = remote
                     self._size_exact = True
 
