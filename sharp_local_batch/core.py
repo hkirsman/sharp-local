@@ -143,7 +143,7 @@ def _splat_transform_vendor_dir() -> Path:
 
 
 def _splat_transform_platform_names() -> List[str]:
-    """Candidate filenames for the current OS/arch (newest VERSION preferred)."""
+    """Candidate filename globs for the current OS/arch (preferred order)."""
     if sys.platform == "darwin":
         # Apple Silicon first; Intel optional if someone vendors it later.
         machine = os.uname().machine.lower() if hasattr(os, "uname") else ""
