@@ -412,7 +412,7 @@ def transform() -> Any:
     fmt = (request.form.get("format") or "ply").strip().lower()
     if fmt not in ("ply", "spz"):
         fmt = "ply"
-    name = upload.filename
+    name = Path(upload.filename).name
     limit_on, max_splats, limit_err = _parse_splat_limit_form()
     if limit_err:
         gui_log(f"  Failed — {limit_err}")
@@ -420,13 +420,18 @@ def transform() -> Any:
     gui_log(f"Generating splat for {name}…")
     t0 = time.perf_counter()
 
-    ensure_sharp_imports()
-    from sharp.utils import io as sharp_io
-    from sharp.utils.gaussians import save_ply
-    from sharp.cli.predict import predict_image
+    ext = Path(name).suffix.lower()
+    try:
+        ensure_sharp_imports()
+        from sharp.utils import io as sharp_io
+        from sharp.utils.gaussians import save_ply
+        from sharp.cli.predict import predict_image
+        allowed = {e.lower() for e in sharp_io.get_supported_image_extensions()}
+    except RuntimeError as e:
+        LOGGER.warning("SHARP not ready for %s: %s", name, e)
+        gui_log("  Failed — service not ready")
+        return jsonify({"error": "Service not ready"}), 503
 
-    ext = Path(name).suffix
-    allowed = set(sharp_io.get_supported_image_extensions())
     if ext not in allowed:
         gui_log(f"  Failed — unsupported image type ({ext or 'none'})")
         return jsonify({"error": f"Unsupported image type: {ext or '(none)'}"}), 400
