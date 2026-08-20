@@ -3,8 +3,21 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
+
+
+def ensure_stdio() -> None:
+    """Restore stdout/stderr when a frozen ``console=False`` build left them as None.
+
+    Libraries such as ``torch.hub.load_state_dict_from_url(..., progress=True)``
+    write to ``sys.stdout`` and crash otherwise.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
 
 
 def sharp_local_data_dir() -> Path:
@@ -61,6 +74,7 @@ def ensure_stderr_info_logging(*, log_file_name: str | None = None) -> Path | No
     file under Application Support / LocalAppData so double-clicked apps leave
     a readable trail. Returns the log file path when file logging is enabled.
     """
+    ensure_stdio()
     frozen = bool(getattr(sys, "frozen", False))
     name = log_file_name or ("sharp-batch.log" if frozen else None)
     log_path: Path | None = None

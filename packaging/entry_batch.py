@@ -9,8 +9,9 @@ def main() -> None:
     import logging
 
     from sharp_local_batch._version import __version__
-    from sharp_local_batch.logging_config import ensure_stderr_info_logging
+    from sharp_local_batch.logging_config import ensure_stderr_info_logging, ensure_stdio
 
+    ensure_stdio()
     ensure_stderr_info_logging(log_file_name="sharp-batch.log")
     logging.getLogger("SharpBatch").info("Sharp Local batch %s", __version__)
 

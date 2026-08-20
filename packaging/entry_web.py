@@ -9,6 +9,10 @@ import multiprocessing
 def main() -> None:
     import argparse
 
+    from sharp_local_batch.logging_config import ensure_stdio
+
+    # Before any import that may touch logging or torch progress bars.
+    ensure_stdio()
     logging.basicConfig(level=logging.INFO)
     from sharp_local_batch._version import __version__
     from app import LOGGER, OUTPUTS_DIR, app
