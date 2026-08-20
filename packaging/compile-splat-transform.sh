@@ -49,8 +49,8 @@ trap cleanup EXIT
 
 echo "Fetching ${PKG}..."
 cd "$WORKDIR"
-npm pack "$PKG" >/dev/null
-tar -xzf "playcanvas-splat-transform-${VERSION}.tgz"
+TARBALL="$(npm pack "$PKG" | tail -n 1)"
+tar -xzf "$TARBALL"
 cd package
 
 echo "Installing @adobe/spz (omit real webgpu)..."
