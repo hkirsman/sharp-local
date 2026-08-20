@@ -16,6 +16,15 @@ const limitSplatsCheck = document.getElementById("limitSplatsCheck");
 const maxSplatsInput = document.getElementById("maxSplatsInput");
 const exportSpzCheck = document.getElementById("exportSpzCheck");
 const splatInfo = document.getElementById("splatInfo");
+const modelBanner = document.getElementById("modelBanner");
+const modelBannerMessage = document.getElementById("modelBannerMessage");
+const modelBannerProgressWrap = document.getElementById("modelBannerProgressWrap");
+const modelBannerProgressBar = document.getElementById("modelBannerProgressBar");
+const modelBannerProgressLabel = document.getElementById("modelBannerProgressLabel");
+const btnModelDownload = document.getElementById("btnModelDownload");
+const btnModelCancel = document.getElementById("btnModelCancel");
+const btnModelRemove = document.getElementById("btnModelRemove");
+const modelGateOverlay = document.getElementById("modelGateOverlay");
 
 /** World-units per key press (fly mode); orbit mode scales slightly with distance. */
 const DOLLY_BASE = 0.14;
@@ -26,6 +35,269 @@ const _dollyDir = new THREE.Vector3();
 
 let viewer = null;
 let currentFile = null;
+/** @type {"idle"|"downloading"|"ready"|"error"|null} */
+let modelState = null;
+let modelStatusPollTimer = null;
+let generateInFlight = false;
+
+function formatBytes(n) {
+  if (!n || n <= 0) return "-";
+  const mb = n / (1024 * 1024);
+  if (mb >= 1024) {
+    const gb = mb / 1024;
+    return `${gb >= 10 ? Math.round(gb) : gb.toFixed(1)} GB`;
+  }
+  if (mb < 100) return `${mb.toFixed(1)} MB`;
+  return `${Math.round(mb)} MB`;
+}
+
+const ML_SHARP_URL = "https://github.com/apple/ml-sharp";
+const GAUSSIAN_SPLAT_WIKI_URL = "https://en.wikipedia.org/wiki/Gaussian_splatting";
+
+function externalLink(href, label) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = label;
+  return a;
+}
+
+/** Explain the one-time Apple SHARP download for first-time users. */
+function setModelExplainMessage(el, sizeLabel) {
+  if (!el) return;
+  el.replaceChildren();
+  el.append("Download the ");
+  el.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+  el.append(
+    ` model once (${sizeLabel}). It runs on this computer to turn a photo into 3D `
+  );
+  el.appendChild(externalLink(GAUSSIAN_SPLAT_WIKI_URL, "Gaussian splats"));
+  el.append(".");
+}
+
+function setModelGateHint(el, state) {
+  if (!el) return;
+  el.replaceChildren();
+  // Idle: banner already explains - keep overlay silent so text is not repeated.
+  if (state === "loading") {
+    el.append("Loading…");
+    return;
+  }
+  if (state === "downloading") {
+    el.append("Download in progress - workspace unlocks when it finishes.");
+    return;
+  }
+  if (state === "error") {
+    el.append("Download failed. Use Retry in the banner above.");
+  }
+}
+
+function syncGenerateEnabled() {
+  if (!btnGenerate) return;
+  const ready = modelState === "ready" && !!currentFile && !generateInFlight;
+  btnGenerate.disabled = !ready;
+}
+
+function syncModelGate(state) {
+  const blocked = state !== "ready";
+  document.body.classList.toggle("model-gate-active", blocked);
+  if (!modelGateOverlay) return;
+  modelGateOverlay.hidden = !blocked;
+  modelGateOverlay.setAttribute("aria-hidden", blocked ? "false" : "true");
+  const hint = modelGateOverlay.querySelector(".model-gate-hint");
+  if (!hint || !blocked) return;
+  setModelGateHint(hint, state);
+  hint.hidden = !hint.textContent;
+}
+
+function renderModelStatus(data) {
+  if (!modelBanner || !modelBannerMessage) return;
+  window.__sharpModelUiReady = true;
+  const state = (data && data.state) || "idle";
+  const wasDownloading = modelState === "downloading";
+  modelState = state;
+  modelBanner.hidden = false;
+  modelBanner.classList.remove("is-ready", "is-error", "is-downloading");
+  const total = typeof data.bytes_total === "number" ? data.bytes_total : 0;
+  const done = typeof data.bytes_downloaded === "number" ? data.bytes_downloaded : 0;
+  const percent = typeof data.percent === "number" ? data.percent : 0;
+  const sizeLabel = total > 0
+    ? (data.size_exact ? formatBytes(total) : `~${formatBytes(total)}`)
+    : "~2.6 GB";
+
+  if (btnModelDownload) btnModelDownload.hidden = true;
+  if (btnModelCancel) btnModelCancel.hidden = true;
+  if (btnModelRemove) btnModelRemove.hidden = true;
+  if (modelBannerProgressWrap) modelBannerProgressWrap.classList.add("hidden");
+
+  if (state === "ready") {
+    modelBanner.classList.add("is-ready");
+    modelBannerMessage.replaceChildren();
+    modelBannerMessage.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+    modelBannerMessage.append(` model ready · ${sizeLabel}`);
+    if (btnModelRemove) {
+      btnModelRemove.hidden = false;
+      btnModelRemove.disabled = false;
+    }
+  } else if (state === "downloading") {
+    modelBanner.classList.add("is-downloading");
+    const cancelling = /cancel/i.test(String((data && data.message) || ""));
+    modelBannerMessage.replaceChildren();
+    if (cancelling) {
+      modelBannerMessage.append(String(data.message));
+    } else {
+      modelBannerMessage.append("Downloading ");
+      modelBannerMessage.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+      modelBannerMessage.append(" model…");
+    }
+    if (modelBannerProgressWrap) {
+      modelBannerProgressWrap.classList.remove("hidden");
+      if (modelBannerProgressBar) {
+        modelBannerProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      }
+      if (modelBannerProgressLabel) {
+        const left = total > 0 ? `${formatBytes(done)} / ${formatBytes(total)}` : formatBytes(done);
+        modelBannerProgressLabel.textContent = `${percent}% · ${left}`;
+      }
+    }
+    if (btnModelCancel) {
+      btnModelCancel.hidden = false;
+      btnModelCancel.disabled = cancelling;
+    }
+  } else if (state === "error") {
+    modelBanner.classList.add("is-error");
+    modelBannerMessage.textContent =
+      data.error
+        ? `Download failed: ${data.error}`
+        : "Download failed. Try again.";
+    if (btnModelDownload) {
+      btnModelDownload.hidden = false;
+      btnModelDownload.disabled = false;
+      btnModelDownload.textContent = "Retry";
+    }
+  } else {
+    setModelExplainMessage(modelBannerMessage, sizeLabel);
+    if (btnModelDownload) {
+      btnModelDownload.hidden = false;
+      btnModelDownload.disabled = false;
+      btnModelDownload.textContent = "Download";
+    }
+    if (wasDownloading) {
+      setStatus("Download cancelled.");
+    }
+  }
+
+  if (state === "downloading") {
+    if (modelStatusPollTimer == null) {
+      modelStatusPollTimer = setInterval(() => {
+        loadModelStatus();
+      }, 1500);
+    }
+  } else if (modelStatusPollTimer != null) {
+    clearInterval(modelStatusPollTimer);
+    modelStatusPollTimer = null;
+  }
+
+  syncModelGate(state);
+  syncGenerateEnabled();
+}
+
+async function loadModelStatus() {
+  try {
+    const early = window.__sharpModelStatusEarly;
+    if (early && !window.__sharpModelUiReady) {
+      renderModelStatus(early);
+    }
+    const res = await fetch("/api/model/status");
+    if (!res.ok) return;
+    const data = await res.json();
+    renderModelStatus(data);
+  } catch (err) {
+    console.error("Failed to load model status:", err);
+  }
+}
+
+async function startModelDownload() {
+  if (btnModelDownload) btnModelDownload.disabled = true;
+  try {
+    const res = await fetch("/api/model/download", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || `Download failed (${res.status})`, "error");
+      if (btnModelDownload) btnModelDownload.disabled = false;
+      return;
+    }
+    renderModelStatus(data);
+  } catch (err) {
+    console.error(err);
+    setStatus("Network error starting download", "error");
+    if (btnModelDownload) btnModelDownload.disabled = false;
+  }
+}
+
+async function cancelModelDownload() {
+  if (btnModelCancel) btnModelCancel.disabled = true;
+  try {
+    const res = await fetch("/api/model/cancel", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || `Cancel failed (${res.status})`, "error");
+      if (btnModelCancel) btnModelCancel.disabled = false;
+      return;
+    }
+    setStatus("Cancelling download - progress will be discarded.");
+    renderModelStatus(data);
+  } catch (err) {
+    console.error(err);
+    setStatus("Network error cancelling download", "error");
+    if (btnModelCancel) btnModelCancel.disabled = false;
+  }
+}
+
+async function removeModel() {
+  const ok = window.confirm(
+    "Remove the downloaded Apple SHARP model from this computer?\n\n" +
+      "You can download it again later. Generation will be blocked until then."
+  );
+  if (!ok) return;
+  if (btnModelRemove) btnModelRemove.disabled = true;
+  try {
+    const res = await fetch("/api/model/delete", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || `Remove failed (${res.status})`, "error");
+      if (btnModelRemove) btnModelRemove.disabled = false;
+      return;
+    }
+    const freed =
+      typeof data.deleted_bytes === "number" && data.deleted_bytes > 0
+        ? ` Freed ${formatBytes(data.deleted_bytes)}.`
+        : "";
+    setStatus(`SHARP model removed.${freed}`);
+    renderModelStatus(data);
+  } catch (err) {
+    console.error(err);
+    setStatus("Network error removing model", "error");
+    if (btnModelRemove) btnModelRemove.disabled = false;
+  }
+}
+
+if (btnModelDownload) {
+  btnModelDownload.addEventListener("click", () => {
+    startModelDownload();
+  });
+}
+if (btnModelCancel) {
+  btnModelCancel.addEventListener("click", () => {
+    cancelModelDownload();
+  });
+}
+if (btnModelRemove) {
+  btnModelRemove.addEventListener("click", () => {
+    removeModel();
+  });
+}
 
 function setStatus(text, kind = "") {
   if (!statusBar) return;
@@ -287,7 +559,7 @@ function setPreviewFile(file) {
     previewImg.classList.add("hidden");
     dropZone.classList.remove("has-preview");
     previewImg.removeAttribute("src");
-    btnGenerate.disabled = true;
+    syncGenerateEnabled();
     return;
   }
   const r = new FileReader();
@@ -297,7 +569,7 @@ function setPreviewFile(file) {
     dropZone.classList.add("has-preview");
   };
   r.readAsDataURL(file);
-  btnGenerate.disabled = false;
+  syncGenerateEnabled();
 }
 
 dropZone.addEventListener("click", () => fileInput.click());
@@ -334,6 +606,10 @@ syncMaxSplatsInputDisabled();
 
 btnGenerate.addEventListener("click", async () => {
   if (!currentFile) return;
+  if (modelState !== "ready") {
+    setStatus("Download the SHARP model first", "error");
+    return;
+  }
   const fd = new FormData();
   fd.append("file", currentFile, currentFile.name);
   if (limitSplatsCheck.checked) {
@@ -344,27 +620,37 @@ btnGenerate.addEventListener("click", async () => {
   }
   fd.append("export_spz", exportSpzCheck.checked ? "1" : "0");
   setStatus("Generating…", "working");
-  btnGenerate.disabled = true;
+  generateInFlight = true;
+  syncGenerateEnabled();
   try {
     const res = await fetch("/api/generate", { method: "POST", body: fd });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setStatusError(
-        data.error || `Error ${res.status}`,
-        data.log_url || null
-      );
-      btnGenerate.disabled = false;
+      if (res.status === 503 && (data.error === "model_not_ready" || data.error === "model_downloading")) {
+        if (data.model) renderModelStatus(data.model);
+        else await loadModelStatus();
+        setStatus("SHARP model not ready - download first", "error");
+      } else {
+        setStatusError(
+          data.error || `Error ${res.status}`,
+          data.log_url || null
+        );
+      }
+      generateInFlight = false;
+      syncGenerateEnabled();
       return;
     }
     setStatus("Ready");
     setSplatInfoFromApi(data);
     await loadSplatUrl(data.ply_url);
     await refreshScenes(data.id);
-    btnGenerate.disabled = false;
+    generateInFlight = false;
+    syncGenerateEnabled();
   } catch (err) {
     console.error(err);
     setStatus("Network error", "error");
-    btnGenerate.disabled = false;
+    generateInFlight = false;
+    syncGenerateEnabled();
   }
 });
 
@@ -430,7 +716,7 @@ async function checkHealth() {
     const res = await fetch("/api/health");
     const h = await res.json();
     if (!h.ml_sharp_present) {
-      setStatus("ml-sharp path missing — see server logs", "error");
+      setStatus("ml-sharp path missing - see server logs", "error");
     }
   } catch (_) {
     setStatus("Cannot reach API", "error");
@@ -438,4 +724,6 @@ async function checkHealth() {
 }
 
 checkHealth();
+// Banner/overlay already show "Loading…" from HTML until this resolves.
+loadModelStatus();
 refreshScenes();

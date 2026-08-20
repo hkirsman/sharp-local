@@ -89,7 +89,11 @@ When frozen, generated scenes are stored under `%LOCALAPPDATA%\SharpLocal\output
 
 ## Notes
 
-- The **first inference** downloads the SHARP model checkpoint (~2.6 GB) into the user cache (`%LOCALAPPDATA%\torch\hub\checkpoints\`). Make sure you have internet access and enough disk space.
+- Download the SHARP model checkpoint (~2.6 GB) explicitly before generating
+  (web **Download**, batch **SHARP model**, or
+  `python -m sharp_local_batch --download-model`). Weights land in
+  `%LOCALAPPDATA%\torch\hub\checkpoints\`. Inference never starts a network
+  fetch. Use **Remove** / `--remove-model` to free disk space.
 - Default PyTorch includes CPU support, which works fine. For GPU acceleration with an NVIDIA card, see <https://pytorch.org/get-started/locally/> to install the CUDA-enabled version instead.
 - The standalone bundles are large (PyTorch; the batch build also includes Qt). This is expected.
 - If command discovery differs between terminals (for example Cursor terminal vs external PowerShell), run tools with explicit paths like `.\.venv\Scripts\python ...` and `.\.venv\Scripts\pyinstaller ...`.

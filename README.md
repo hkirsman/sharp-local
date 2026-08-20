@@ -56,7 +56,16 @@ python3 -m pip install -e ./ml-sharp -r requirements.txt
 
 ## Run
 
-The first run downloads the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`.
+Download the SHARP checkpoint (~2.6 GB) into `~/.cache/torch/hub/checkpoints/`
+**before** generating splats (web banner **Download**, batch **SHARP model**
+group, or CLI below). Inference never starts a network fetch on its own.
+
+```bash
+source .venv/bin/activate
+python -m sharp_local_batch --download-model
+# Free disk later:
+# python -m sharp_local_batch --remove-model
+```
 
 ### Web UI (browser)
 
@@ -76,6 +85,8 @@ Open **http://127.0.0.1:8765**
 ```bash
 source .venv/bin/activate
 python -m sharp_local_batch
+python -m sharp_local_batch --download-model
+python -m sharp_local_batch --remove-model
 python -m sharp_local_batch --cli --folder /path/to/photos --recursive
 # PLY under another tree (under ~: path from home, e.g. Pictures/…; else relative to --folder):
 python -m sharp_local_batch --cli --folder /path/to/photos --recursive \
@@ -124,13 +135,20 @@ In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror**
 - **Batch tool:** `pyinstaller packaging/sharp_batch.spec` → **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless).
 - **Web UI (Flask):** `pyinstaller packaging/sharp_web.spec` → **`dist/SharpWeb/`**. Run `./dist/SharpWeb/SharpWeb`, then open **http://127.0.0.1:8765**. When frozen, scenes are written under the user data directory (on Windows: `%LOCALAPPDATA%\SharpLocal\outputs\`), not next to the executable.
 
-First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On macOS you can also run **`./compile-binaries-mac.sh`** from the repo root after the venv is set up (see `docs/mac-setup.md`). On Windows run **`compile-binaries-win.bat`** (see `docs/windows-setup.md`). Packaging trade-offs are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+First launch still needs an explicit SHARP weight download into the user cache
+(web **Download**, batch **SHARP model**, or `--download-model`) unless you ship
+weights separately. Distribute either bundle by zipping the whole output folder,
+including `_internal/`. On macOS you can also run **`./compile-binaries-mac.sh`**
+from the repo root after the venv is set up (see `docs/mac-setup.md`). On Windows
+run **`compile-binaries-win.bat`** (see `docs/windows-setup.md`). Packaging
+trade-offs are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Using the UI
 
 1. Drop an image (or browse). HEIC is supported if `pillow-heif` is installed (comes with ml-sharp).
-2. **Generate** — wait for inference (MPS/CUDA/CPU depending on your machine).
-3. Orbit with the mouse; **arrow keys** move along the view (↑/→ forward, ↓/← back); **Splat size** slider adjusts screen-space scale; **Previous scenes** reloads saved scenes from `outputs/` (each run writes `splat.ply` for the web viewer and, when conversion succeeds, a compressed `splat.spz` for tools that use the [SPZ](https://github.com/nianticlabs/spz) format).
+2. If the top banner asks for it, **Download** the SHARP model (~2.6 GB) and wait until it shows ready. **Generate** stays disabled until then. Use **Remove** later to free disk space.
+3. **Generate** - wait for inference (MPS/CUDA/CPU depending on your machine).
+4. Orbit with the mouse; **arrow keys** move along the view (↑/→ forward, ↓/← back); **Splat size** slider adjusts screen-space scale; **Previous scenes** reloads saved scenes from `outputs/` (each run writes `splat.ply` for the web viewer and, when conversion succeeds, a compressed `splat.spz` for tools that use the [SPZ](https://github.com/nianticlabs/spz) format).
 
 ## References
 

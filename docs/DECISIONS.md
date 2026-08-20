@@ -21,3 +21,18 @@ development of Sharp Local.
     requirement for contributors. Soft 50 MB warnings on push are acceptable.
     Revisit LFS (or release-asset hosting) if a future Bun / package bump
     pushes any helper over 100 MB.
+
+### Decision 2: Explicit SHARP checkpoint download (never on inference)
+*   **Date:** August 2026
+*   **Context:** The first Generate / batch job used
+    ``torch.hub.load_state_dict_from_url``, which blocked the UI for minutes
+    with only a stdout progress bar. Users had no way to free ~2.6 GB later.
+*   **Decision:** Treat the Apple SHARP `.pt` like Vaela AI stereo weights:
+    background download with status (`idle` / `downloading` / `ready` /
+    `error`), web banner + batch **SHARP model** group + CLI
+    `--download-model` / `--remove-model`. ``get_predictor()`` loads from the
+    local torch-hub cache only; `/api/generate` and `/transform` return 503
+    until ready. Delete unloads RAM first and only unlinks the allowlisted
+    checkpoint path.
+*   **Why:** Users choose when to spend download and disk; generation must not
+    hang on an opaque Hub fetch. Progress belongs in the UI, not buried in logs.

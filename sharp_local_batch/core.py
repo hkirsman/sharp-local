@@ -60,15 +60,51 @@ def inference_device() -> Optional[str]:
     return _device
 
 
+def unload_predictor() -> None:
+    """Drop the in-memory predictor so checkpoint files can be deleted."""
+    global _predictor, _device
+    _predictor = None
+    _device = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def get_predictor() -> tuple[Any, str]:
+    """Load SHARP from the local torch-hub cache only (never downloads)."""
     global _predictor, _device
     ensure_sharp_imports()
     if _predictor is not None and _device is not None:
         return _predictor, _device
 
     import torch
-    from sharp.cli.predict import DEFAULT_MODEL_URL
     from sharp.models import PredictorParams, create_predictor
+
+    from sharp_local_batch.model_download import (
+        ModelNotReadyError,
+        checkpoint_cache_path,
+        get_download_manager,
+    )
+
+    mgr = get_download_manager()
+    if not mgr.is_ready():
+        raise ModelNotReadyError(
+            "SHARP model not downloaded. Use Download in the UI or "
+            "`python -m sharp_local_batch --download-model`."
+        )
+
+    ckpt = checkpoint_cache_path()
+    if not ckpt.is_file():
+        raise ModelNotReadyError("SHARP model checkpoint missing from cache")
 
     if torch.cuda.is_available():
         _device = "cuda"
@@ -77,15 +113,8 @@ def get_predictor() -> tuple[Any, str]:
     else:
         _device = "cpu"
 
-    LOGGER.info("Loading SHARP checkpoint (first run may download weights) on %s", _device)
-    # Frozen console=False builds can leave sys.stdout as None; torch progress writes to it.
-    from sharp_local_batch.logging_config import ensure_stdio
-
-    ensure_stdio()
-    progress = hasattr(sys.stdout, "write")
-    state_dict = torch.hub.load_state_dict_from_url(
-        DEFAULT_MODEL_URL, progress=progress
-    )
+    LOGGER.info("Loading SHARP checkpoint from %s on %s", ckpt, _device)
+    state_dict = torch.load(ckpt, map_location="cpu", weights_only=True)
     predictor = create_predictor(PredictorParams())
     predictor.load_state_dict(state_dict)
     predictor.eval()
