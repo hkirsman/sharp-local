@@ -580,11 +580,12 @@ class SharpBatchQtWindow(QMainWindow):
             from app import set_gui_log_sink
 
             set_gui_log_sink(None)
-            self._srv_label.setText("Server stopped (restart app to re-bind port)")
+            self._srv_label.setText("Server running (logging disabled; restart app to stop)")
             self._srv_label.setStyleSheet("color: #666;")
             self._srv_btn.setEnabled(False)
-            self._srv_running = False
-            self._log_line("--- Server stopped (Flask cannot unbind; restart app to re-use port) ---")
+            self._log_line(
+                "--- Server log disabled (Flask cannot unbind; restart app to stop server) ---"
+            )
             return
         self._srv_running = True
         self._srv_btn.setText("Stop server")
@@ -594,19 +595,22 @@ class SharpBatchQtWindow(QMainWindow):
         self._srv_label.setStyleSheet("color: #2a2;")
         self._log_line(f"--- Server starting at {url} ---")
 
+        # Snapshot UI values on the GUI thread before starting the server thread.
+        limit_default = self._limit_chk.isChecked()
+        max_s: int | None = None
+        try:
+            n = int(self._max_edit.text().strip())
+            if n >= 1:
+                max_s = n
+        except ValueError:
+            max_s = None
+
         def _run() -> None:
             from app import OUTPUTS_DIR, app, set_gui_log_sink, _suppress_flask_startup_noise
 
-            app.config["DEFAULT_LIMIT_SPLATS"] = self._limit_chk.isChecked()
-            max_s: int | None = None
-            try:
-                n = int(self._max_edit.text().strip())
-                if n >= 1:
-                    max_s = n
-            except ValueError:
-                max_s = None
+            app.config["DEFAULT_LIMIT_SPLATS"] = limit_default
             app.config["DEFAULT_MAX_SPLATS"] = max_s
-            if self._limit_chk.isChecked() and max_s is not None:
+            if limit_default and max_s is not None:
                 self._bridge.server_log.emit(f"Splat limit: {max_s:,}")
             set_gui_log_sink(self._bridge.server_log.emit)
             _suppress_flask_startup_noise()
