@@ -308,8 +308,9 @@ class SharpBatchGui:
 
         hint = (
             "PLY next to each image when mirror output is off; with mirror on, PLY goes "
-            "under the target folder for mirror. Optional cap uses splat-transform "
-            "(npm i -g @playcanvas/splat-transform)."
+            "under the target folder for mirror. Optional Limit splat count uses "
+            "PlayCanvas splat-transform (pairwise merge): "
+            "https://github.com/playcanvas/splat-transform"
         )
         foot = ttk.Label(root_f, text=hint, wraplength=560, foreground="#666")
         foot.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(8, 10))

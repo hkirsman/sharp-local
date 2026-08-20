@@ -406,8 +406,7 @@ def generate() -> Any:
                 limit_applied = splat_count < splat_count_full
             else:
                 decimate_error = (
-                    "Decimation failed or splat-transform missing; "
-                    "install: npm install -g @playcanvas/splat-transform"
+                    "Decimation failed or splat-transform helper missing"
                 )
 
     spz_path = scene_dir / "splat.spz"

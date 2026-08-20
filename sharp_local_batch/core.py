@@ -14,7 +14,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 def _bundle_root() -> Path:
@@ -137,16 +137,66 @@ def count_ply_vertices(ply_path: Path) -> int:
     return vertex_count
 
 
+def _splat_transform_vendor_dir() -> Path:
+    """Directory with versioned splat-transform helpers (frozen or from source)."""
+    return REPO_ROOT / "vendor" / "splat-transform"
+
+
+def _splat_transform_platform_names() -> List[str]:
+    """Candidate filename globs for the current OS/arch (preferred order)."""
+    if sys.platform == "darwin":
+        # Apple Silicon first; Intel optional if someone vendors it later.
+        machine = os.uname().machine.lower() if hasattr(os, "uname") else ""
+        if machine in ("arm64", "aarch64"):
+            return [
+                "splat-transform-*-darwin-arm64",
+                "splat-transform-*-darwin-x64",
+            ]
+        return [
+            "splat-transform-*-darwin-x64",
+            "splat-transform-*-darwin-arm64",
+        ]
+    if sys.platform == "win32":
+        return ["splat-transform-*-windows-x64.exe"]
+    return []
+
+
+def resolve_splat_transform_exe() -> Optional[Path]:
+    """Bundled helper (MEIPASS / vendor/) first, then ``splat-transform`` on PATH."""
+    patterns = _splat_transform_platform_names()
+    search_roots: List[Path] = []
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        search_roots.append(Path(sys._MEIPASS))
+    search_roots.append(_splat_transform_vendor_dir())
+
+    for root in search_roots:
+        if not root.is_dir():
+            continue
+        matches: List[Path] = []
+        for pattern in patterns:
+            matches.extend(sorted(root.glob(pattern), reverse=True))
+        for candidate in matches:
+            if candidate.is_file():
+                return candidate.resolve()
+
+    which = shutil.which("splat-transform")
+    if which:
+        return Path(which).resolve()
+    return None
+
+
 def decimate_ply_splat_transform(
     ply_path: Path, target_count: int, timeout_sec: int = 7200
 ) -> bool:
     """Decimate PLY in place via PlayCanvas splat-transform CLI."""
-    exe = shutil.which("splat-transform")
-    if not exe:
+    exe_path = resolve_splat_transform_exe()
+    if not exe_path:
         LOGGER.warning(
-            "splat-transform not on PATH; install: npm install -g @playcanvas/splat-transform"
+            "splat-transform not found (bundled helper or PATH); "
+            "rebuild with packaging/compile-splat-transform.sh"
         )
         return False
+    exe = str(exe_path)
     tmp_fd, tmp_name = tempfile.mkstemp(
         prefix=f"._splat_decimated_{ply_path.stem}_",
         suffix=".ply",
@@ -156,13 +206,27 @@ def decimate_ply_splat_transform(
     tmp_out = Path(tmp_name)
     try:
         tmp_out.unlink(missing_ok=True)
-        cmd = [exe, str(ply_path), "--decimate", str(target_count), str(tmp_out)]
-        r = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-        )
+        # Bundled helper stubs webgpu; -g cpu selects the CPU decimate path.
+        cmd = [
+            exe,
+            "-g",
+            "cpu",
+            str(ply_path),
+            "--decimate",
+            str(target_count),
+            str(tmp_out),
+        ]
+        run_kwargs: Dict[str, Any] = {
+            "capture_output": True,
+            "text": True,
+            "timeout": timeout_sec,
+        }
+        if sys.platform == "win32":
+            # Avoid a console flash from the GUI app.
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if creationflags:
+                run_kwargs["creationflags"] = creationflags
+        r = subprocess.run(cmd, **run_kwargs)
         if r.returncode != 0:
             err = (r.stderr or r.stdout or "").strip()
             LOGGER.warning(
@@ -528,8 +592,7 @@ def process_image_to_sidecar_ply(
             limit_applied = splat_count < splat_count_full
         else:
             decimate_error = (
-                "Decimation failed or splat-transform missing; "
-                "install: npm install -g @playcanvas/splat-transform"
+                "Decimation failed or splat-transform helper missing"
             )
 
     spz_path: Optional[Path] = None
@@ -724,8 +787,7 @@ def _update_ply_sidecar_inner(
                 )
             else:
                 decimate_error = (
-                    "Decimation failed or splat-transform missing; "
-                    "install: npm install -g @playcanvas/splat-transform"
+                    "Decimation failed or splat-transform helper missing"
                 )
 
         if export_ply_to_spz(ply_path, spz_target):

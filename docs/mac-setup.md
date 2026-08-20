@@ -67,6 +67,11 @@ This creates `.venv` if needed, installs deps and PyInstaller, generates app
 icons from `packaging/icon.svg`, builds both specs, and packages versioned zip
 archives under `dist/`.
 
+Requires the vendored `splat-transform` helper for the current platform
+(`vendor/splat-transform/splat-transform-*-darwin-arm64`). If it is missing,
+run `./packaging/compile-splat-transform.sh` (needs Bun + npm) once, then
+rebuild the apps. That helper script is **not** part of every app build.
+
 App icon source of truth: `packaging/icon.svg`. Re-run
 `python packaging/brand_icon.py` after editing the SVG.
 

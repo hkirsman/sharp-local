@@ -151,6 +151,10 @@ class SharpBatchQtWindow(QMainWindow):
 
         row3 = QHBoxLayout()
         self._limit_chk = QCheckBox("Limit splat count")
+        self._limit_chk.setToolTip(
+            "After SHARP, reduce splat count with PlayCanvas splat-transform "
+            "(pairwise merge).\nhttps://github.com/playcanvas/splat-transform"
+        )
         row3.addWidget(self._limit_chk)
         row3.addWidget(QLabel("Max splats"))
         self._max_edit = QLineEdit("500000")
@@ -169,9 +173,10 @@ class SharpBatchQtWindow(QMainWindow):
         row3b.addWidget(self._spz_chk)
         self._spz_only_chk = QCheckBox("SPZ from existing PLY only (no new render)")
         self._spz_only_chk.setToolTip(
-            "When a PLY already exists: no SHARP — optional Limit splat count runs "
+            "When a PLY already exists: no SHARP - optional Limit splat count runs "
             "splat-transform on that PLY, then .spz is written. "
-            "When no PLY yet: runs full SHARP pipeline once, then .spz."
+            "When no PLY yet: runs full SHARP pipeline once, then .spz. "
+            "https://github.com/playcanvas/splat-transform"
         )
         row3b.addWidget(self._spz_only_chk)
         self._remove_ply_chk = QCheckBox("Remove PLY after successful SPZ")
@@ -251,10 +256,13 @@ class SharpBatchQtWindow(QMainWindow):
 
         hint = (
             "PLY next to each image when mirror output is off; with mirror on, PLY goes "
-            "under the target folder for mirror. Optional cap uses splat-transform "
-            "(npm i -g @playcanvas/splat-transform)."
+            "under the target folder for mirror. Optional Limit splat count uses "
+            'PlayCanvas <a href="https://github.com/playcanvas/splat-transform">'
+            "splat-transform</a> (pairwise merge)."
         )
         foot = QLabel(hint)
+        foot.setTextFormat(Qt.TextFormat.RichText)
+        foot.setOpenExternalLinks(True)
         foot.setWordWrap(True)
         foot.setStyleSheet("color: #666;")
         foot.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)

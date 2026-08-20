@@ -98,9 +98,15 @@ Click **Start server**. The app shows a base URL (default **http://127.0.0.1:876
 
 Headless equivalent: `python app.py --host 127.0.0.1 --port 8765` (same endpoints; also serves the browser UI at `/`).
 
-### Optional splat count reduction dependency (`splat-transform`)
+### Optional splat count reduction (`splat-transform`)
 
-Optional splat count reduction (`--limit-splats`) uses the external PlayCanvas CLI `splat-transform`, which is not bundled. Install Node.js/npm from <https://nodejs.org/>, then:
+Optional splat count reduction (`--limit-splats` / **Limit splat count**) uses the PlayCanvas CLI `splat-transform`. **Standalone SharpBatch / SharpWeb bundles include a pinned helper** (no Node.js install). From source, helpers live under `vendor/splat-transform/`; rebuild rarely with:
+
+```bash
+./packaging/compile-splat-transform.sh
+```
+
+(Requires [Bun](https://bun.sh/) and npm.) If the vendor binary is missing, you can still use a global install:
 
 ```bash
 npm install -g @playcanvas/splat-transform
@@ -118,7 +124,7 @@ In the GUI, enable **Mirror PLY output** and pick a **target folder for mirror**
 - **Batch tool:** `pyinstaller packaging/sharp_batch.spec` → **`dist/SharpBatch/`** (large: PyTorch + Qt). Run `./dist/SharpBatch/SharpBatch` (add `--cli …` for headless).
 - **Web UI (Flask):** `pyinstaller packaging/sharp_web.spec` → **`dist/SharpWeb/`**. Run `./dist/SharpWeb/SharpWeb`, then open **http://127.0.0.1:8765**. When frozen, scenes are written under the user data directory (on Windows: `%LOCALAPPDATA%\SharpLocal\outputs\`), not next to the executable.
 
-First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On macOS you can also run **`./compile-binaries-mac.sh`** from the repo root after the venv is set up (see `docs/mac-setup.md`). On Windows run **`compile-binaries-win.bat`** (see `docs/windows-setup.md`).
+First inference still downloads the SHARP weights into the user cache unless you ship them separately. Distribute either bundle by zipping the whole output folder, including `_internal/`. On macOS you can also run **`./compile-binaries-mac.sh`** from the repo root after the venv is set up (see `docs/mac-setup.md`). On Windows run **`compile-binaries-win.bat`** (see `docs/windows-setup.md`). Packaging trade-offs are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Using the UI
 
