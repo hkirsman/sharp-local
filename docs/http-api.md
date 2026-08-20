@@ -26,12 +26,17 @@ Synchronous: hold the connection until the splat file is ready.
 **Request:** multipart form
 
 - `file` (required) - image bytes (JPEG, PNG, HEIC, etc.)
-- `format` (optional) - `ply` (default) or `spz`
+- `format` (optional) - `ply` (default) or `spz`. This is a preference.
+  There is no dedicated "format" response header. If SPZ export fails,
+  the server still returns PLY.
 
 **Success (200):** raw bytes, not JSON
 
 - `Content-Type: application/octet-stream`
 - `Content-Disposition: attachment; filename="splat.ply"` or `splat.spz`
+
+Use the filename extension to see what you actually got. Do not assume it
+matches `format` (SPZ requests can fall back to PLY).
 
 **Errors:** JSON `{ "error": "..." }` with 400, 413, 500, or 503.
 
