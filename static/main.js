@@ -50,6 +50,44 @@ function formatBytes(n) {
   return `${Math.round(mb)} MB`;
 }
 
+const ML_SHARP_URL = "https://github.com/apple/ml-sharp";
+const GAUSSIAN_SPLAT_WIKI_URL = "https://en.wikipedia.org/wiki/Gaussian_splatting";
+
+function externalLink(href, label) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = label;
+  return a;
+}
+
+/** Explain the one-time Apple SHARP download for first-time users. */
+function setModelExplainMessage(el, sizeLabel) {
+  if (!el) return;
+  el.replaceChildren();
+  el.append("Download the ");
+  el.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+  el.append(
+    ` model once (${sizeLabel}). It runs on this computer to turn a photo into 3D `
+  );
+  el.appendChild(externalLink(GAUSSIAN_SPLAT_WIKI_URL, "Gaussian splats"));
+  el.append(".");
+}
+
+function setModelGateHint(el, state) {
+  if (!el) return;
+  el.replaceChildren();
+  // Idle: banner already explains - keep overlay silent so text is not repeated.
+  if (state === "downloading") {
+    el.append("Download in progress - workspace unlocks when it finishes.");
+    return;
+  }
+  if (state === "error") {
+    el.append("Download failed. Use Retry in the banner above.");
+  }
+}
+
 function syncGenerateEnabled() {
   if (!btnGenerate) return;
   const ready = modelState === "ready" && !!currentFile && !generateInFlight;
@@ -64,14 +102,8 @@ function syncModelGate(state) {
   modelGateOverlay.setAttribute("aria-hidden", blocked ? "false" : "true");
   const hint = modelGateOverlay.querySelector(".model-gate-hint");
   if (!hint || !blocked) return;
-  if (state === "downloading") {
-    hint.textContent =
-      "Downloading the SHARP model - the workspace unlocks when it finishes.";
-  } else if (state === "error") {
-    hint.textContent = "Model download failed. Use Retry in the banner above.";
-  } else {
-    hint.textContent = "Download the SHARP model above to unlock the workspace.";
-  }
+  setModelGateHint(hint, state);
+  hint.hidden = !hint.textContent;
 }
 
 function renderModelStatus(data) {
@@ -93,14 +125,19 @@ function renderModelStatus(data) {
 
   if (state === "ready") {
     modelBanner.classList.add("is-ready");
-    modelBannerMessage.textContent = `SHARP model ready · ${sizeLabel}`;
+    modelBannerMessage.replaceChildren();
+    modelBannerMessage.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+    modelBannerMessage.append(` model ready · ${sizeLabel}`);
     if (btnModelRemove) {
       btnModelRemove.hidden = false;
       btnModelRemove.disabled = false;
     }
   } else if (state === "downloading") {
     modelBanner.classList.add("is-downloading");
-    modelBannerMessage.textContent = "Downloading SHARP model…";
+    modelBannerMessage.replaceChildren();
+    modelBannerMessage.append("Downloading ");
+    modelBannerMessage.appendChild(externalLink(ML_SHARP_URL, "Apple SHARP"));
+    modelBannerMessage.append(" model…");
     if (modelBannerProgressWrap) {
       modelBannerProgressWrap.classList.remove("hidden");
       if (modelBannerProgressBar) {
@@ -123,8 +160,7 @@ function renderModelStatus(data) {
       btnModelDownload.textContent = "Retry";
     }
   } else {
-    modelBannerMessage.textContent =
-      `Download the SHARP model (${sizeLabel}) to generate splats`;
+    setModelExplainMessage(modelBannerMessage, sizeLabel);
     if (btnModelDownload) {
       btnModelDownload.hidden = false;
       btnModelDownload.disabled = false;
@@ -178,7 +214,7 @@ async function startModelDownload() {
 
 async function removeModel() {
   const ok = window.confirm(
-    "Remove the downloaded SHARP model from this computer?\n\n" +
+    "Remove the downloaded Apple SHARP model from this computer?\n\n" +
       "You can download it again later. Generation will be blocked until then."
   );
   if (!ok) return;

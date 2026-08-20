@@ -46,13 +46,17 @@
         class="model-gate-overlay"
         aria-hidden="false"
       >
-        <p class="model-gate-hint">Checking SHARP model…</p>
+        <p class="model-gate-hint" hidden></p>
       </div>
 
       <header class="page-header">
         <h1 class="title">__SHARP_LOCAL_WEB_TITLE__</h1>
         <p class="subtitle">
-          Transform images into 3D Gaussian splats using
+          Transform images into 3D
+          <a href="https://en.wikipedia.org/wiki/Gaussian_splatting" target="_blank" rel="noopener"
+            >Gaussian splats</a
+          >
+          using
           <a href="https://github.com/apple/ml-sharp" target="_blank" rel="noopener">Apple SHARP</a>.
         </p>
       </header>
@@ -108,7 +112,7 @@
               <div class="status-bar" id="statusBar" role="status">Ready</div>
             </div>
           </div>
-          <p class="hint">Inference runs locally via Python (PyTorch). Download the SHARP model first if prompted above.</p>
+          <p class="hint">Inference runs locally via Python (PyTorch). Download Apple SHARP above if prompted.</p>
         </section>
 
         <section class="panel panel-output" aria-label="Preview">

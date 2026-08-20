@@ -78,6 +78,16 @@ body {
   letter-spacing: -0.01em;
 }
 
+.model-banner-message a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.model-banner-message a:hover {
+  color: var(--text);
+}
+
 .model-banner-progress-wrap {
   margin-top: 0.45rem;
   display: flex;
@@ -157,14 +167,26 @@ body {
 
 .model-gate-hint {
   margin: 0;
-  max-width: 28rem;
+  max-width: 32rem;
   text-align: center;
   font-size: 0.95rem;
   font-weight: 500;
   color: #e8e0cc;
   letter-spacing: -0.01em;
-  line-height: 1.4;
+  line-height: 1.45;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+}
+
+.model-gate-hint a {
+  color: inherit;
+  pointer-events: auto;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.model-gate-hint a:hover {
+  color: #fff;
 }
 
 body.model-gate-active .app-shell > .page-header,
